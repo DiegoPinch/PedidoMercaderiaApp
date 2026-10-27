@@ -1,0 +1,16 @@
+
+# Visual Studio
+.vs/
+bin/
+obj/
+
+# Publicación local
+dist/
+publish/
+
+# Netlify CLI
+.netlify/
+
+# Archivos de usuario
+*.user
+*.suo

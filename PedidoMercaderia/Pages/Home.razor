@@ -1,0 +1,120 @@
+﻿@page "/"
+@using PedidoMercaderia.Services
+@inject ConfiguracionService Configuracion
+
+<PageTitle>Inicio - Pedidos de mercadería</PageTitle>
+
+<div class="container-fluid py-4">
+
+    <h1 class="fw-bold">
+        Gestión de pedidos de mercadería
+    </h1>
+
+    <p class="text-muted">
+        Herramienta para analizar existencias de inventario,
+        preparar solicitudes de mercadería y revisar pedidos
+        con los centros habilitados.
+    </p>
+
+    <div class="row g-3 mt-3">
+
+        <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+
+                    <h5>Mi sucursal</h5>
+
+                    <h3 class="text-primary">
+                        @(string.IsNullOrWhiteSpace(
+                                                Configuracion.Actual.BodegaLocal)
+                                                ? "Sin configurar"
+                                                : Configuracion.Actual.BodegaLocal)
+                    </h3>
+
+                    <p class="text-muted">
+                        Bodega donde se necesita mercadería.
+                    </p>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+
+                    <h5>Bodegas de origen</h5>
+
+                    <h3 class="text-primary">
+                        @Configuracion.Actual.BodegasOrigen.Count
+                    </h3>
+
+                    <p class="text-muted">
+                        Bodegas disponibles para abastecimiento.
+                    </p>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+
+                    <h5>Bodegas autorizadas</h5>
+
+                    <h3 class="text-primary">
+                        B1 / B40
+                    </h3>
+
+                    <p class="text-muted">
+                        Matriz y Ebenezer. Bame es solo referencia.
+                    </p>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="card shadow-sm mt-4">
+        <div class="card-body p-4">
+
+            <h4>Preparar pedido de mercadería</h4>
+
+            <p class="text-muted">
+                Primero configura las bodegas. Después podrás
+                importar el inventario y generar una propuesta
+                de pedido para revisar y ajustar sus cantidades.
+            </p>
+
+            @if (Configuracion.EstaConfigurado)
+            {
+                <div class="alert alert-success">
+                    Configuración de bodegas lista.
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-warning">
+                    Debes configurar las bodegas para continuar.
+                </div>
+            }
+
+            <a class="btn btn-primary"
+               href="/configuracion">
+                Configurar bodegas
+            </a>
+
+        </div>
+    </div>
+
+</div>
+
+@code {
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Configuracion.CargarAsync();
+    }
+}

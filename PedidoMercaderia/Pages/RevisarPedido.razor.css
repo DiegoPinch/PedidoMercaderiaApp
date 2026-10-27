@@ -1,0 +1,61 @@
+.pedido-page { max-width: 1500px; margin: 0 auto; padding: 1.5rem 0; color: #253246; }
+.pedido-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.pedido-header h1 { font-size: 1.65rem; font-weight: 650; margin-bottom: .4rem; }
+.pedido-header p { color: #627084; margin: 0; }
+.pedido-resumen { white-space: nowrap; font-size: .9rem; color: #526174; }
+.pedido-vistas { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin-bottom: 1.25rem; }
+.otras-listas { position: relative; margin-left: auto; }
+summary { cursor: pointer; }
+.otras-listas summary { padding: .5rem; color: #526174; }
+.otras-listas-menu { position: absolute; z-index: 3; right: 0; min-width: 220px; display: grid; gap: .4rem; padding: .65rem; border: 1px solid #dce2e9; border-radius: .5rem; background: white; box-shadow: 0 5px 18px #25324618; }
+.otras-listas-menu button { text-align: left; }
+.pedido-busqueda { border: 1px solid #dce2e9; border-radius: .65rem; padding: 1.1rem 1.25rem; background: white; }
+.busqueda-principal { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; }
+.busqueda-texto { flex: 2 1 260px; }
+.busqueda-marca { flex: 1 1 180px; }
+.pedido-busqueda label { display: block; font-weight: 550; font-size: .88rem; margin-bottom: .4rem; }
+.pedido-busqueda .solo-agotados { display: flex; align-items: center; gap: .5rem; min-height: 38px; margin-bottom: 0; font-weight: 400; }
+.solo-agotados input { margin: 0; }
+.opciones-avanzadas { margin-top: 1rem; }
+.opciones-avanzadas > summary { font-size: .88rem; color: #50627a; width: fit-content; padding: .25rem 0; }
+.opciones-contenido { border-top: 1px solid #e7ebf0; margin-top: .75rem; padding-top: 1rem; }
+.opciones-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 1.1rem; }
+.opciones-grid small { display: block; margin-top: .45rem; color: #627084; line-height: 1.5; }
+.opciones-acciones, .seleccion-acciones { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.limites-activos { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin-top: .8rem; font-size: .85rem; color: #526174; }
+.lista-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem; margin-top: 1.65rem; }
+.lista-toolbar h2 { display: inline; font-size: 1.1rem; font-weight: 650; margin-right: .6rem; }
+.lista-ayuda { margin: .5rem 0 1rem; font-size: .88rem; color: #627084; }
+.pedido-tabla-wrap { border: 1px solid #dce2e9; border-radius: .65rem; overflow-x: auto; }
+.pedido-tabla { min-width: 790px; table-layout: fixed; font-size: .9rem; }
+.pedido-tabla th { background: #f6f8fb; color: #536176; font-size: .82rem; font-weight: 600; padding: .8rem .65rem; border-bottom: 1px solid #dce2e9; }
+.pedido-tabla th small { display: block; font-size: .72rem; color: #748093; font-weight: 400; margin-top: .12rem; }
+.pedido-tabla td { padding: .95rem .65rem; border-color: #e9edf2; background: white; vertical-align: top; }
+.pedido-tabla tbody tr:hover td { background: #fbfcfe; }
+.pedido-tabla tr:last-child td { border-bottom: 0; }
+.col-seleccion { width: 36px; }
+.col-producto { width: auto; }
+.col-stock { width: 90px; text-align: right; }
+.col-cantidad { width: 95px; }
+.col-acciones { width: 122px; }
+.col-origen { width: 130px; }
+.numero-stock { text-align: right; font-variant-numeric: tabular-nums; }
+.producto-nombre { font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.producto-meta { color: #738095; font-size: .79rem; margin-top: .25rem; overflow-wrap: anywhere; }
+.producto-detalles { font-size: .78rem; line-height: 1.65; color: #627084; margin-top: .35rem; }
+.producto-detalles summary { width: fit-content; }
+.cantidad-input { text-align: right; font-variant-numeric: tabular-nums; }
+.fila-acciones { display: grid; justify-items: stretch; gap: .35rem; }
+.fila-acciones > button { white-space: nowrap; }
+.fila-mas summary { font-size: .78rem; text-align: center; color: #627084; }
+.fila-mas-opciones { display: grid; gap: .35rem; margin-top: .4rem; }
+.fila-mas-opciones button { font-size: .76rem; white-space: normal; line-height: 1.4; }
+.pedido-paginacion { display: flex; align-items: center; justify-content: space-between; margin: 1rem 0; font-size: .85rem; color: #627084; }
+.pedido-nota { color: #748093; font-size: .78rem; margin: 1.25rem 0 0; }
+@media (max-width: 767px) {
+    .pedido-header { align-items: start; flex-direction: column; gap: .5rem; }
+    .pedido-page { padding-top: 1rem; }
+    .pedido-busqueda { padding: 1rem; }
+    .otras-listas { margin-left: 0; }
+    .otras-listas-menu { right: auto; left: 0; }
+}

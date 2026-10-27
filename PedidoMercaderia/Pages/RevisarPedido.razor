@@ -1,0 +1,928 @@
+@page "/pedido"
+@using System.Globalization
+@using System.Text.Json
+@using Microsoft.JSInterop
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@inject InventarioService Inventario
+@inject ConfiguracionService Configuracion
+@inject PedidoService Pedido
+@inject IJSRuntime JS
+
+<PageTitle>Preparar pedido</PageTitle>
+
+<div class="pedido-page">
+    <header class="pedido-header">
+        <div>
+            <h1>Preparar pedido</h1>
+            <p>Revisa lo que tienes y agrega lo que necesitas de Matriz o Ebenezer.</p>
+        </div>
+        @if (Inventario.TieneInventario)
+        {
+            <span class="pedido-resumen">@Pedido.TotalProductos productos en tu pedido</span>
+        }
+    </header>
+
+    @if (!Inventario.TieneInventario)
+    {
+        <div class="alert alert-info">Primero carga el Excel de inventario.</div>
+        <a href="importar" class="btn btn-primary">Importar inventario</a>
+    }
+    else if (!Configuracion.EstaConfigurado)
+    {
+        <div class="alert alert-warning">Selecciona de qué bodegas vas a pedir.</div>
+        <a href="configuracion" class="btn btn-primary">Elegir bodegas</a>
+    }
+    else
+    {
+        var productos = ObtenerFiltrados();
+        int totalPaginas = Math.Max(1, (int)Math.Ceiling(productos.Count / (double)TamanoPagina));
+        pagina = Math.Clamp(pagina, 1, totalPaginas);
+        var productosPagina = productos.Skip((pagina - 1) * TamanoPagina).Take(TamanoPagina).ToList();
+
+        <nav class="pedido-vistas" aria-label="Listas del pedido">
+            <button class="btn @(vista == "Oportunidades" ? "btn-primary" : "btn-outline-secondary")"
+                    aria-pressed="@(vista == "Oportunidades")" @onclick="MostrarOportunidades">Por revisar</button>
+            <button class="btn @(vista == "Mi pedido" ? "btn-primary" : "btn-outline-secondary")"
+                    aria-pressed="@(vista == "Mi pedido")" @onclick="MostrarMiPedido">Mi pedido (@Pedido.TotalProductos)</button>
+            <details class="otras-listas">
+                <summary>Otras listas</summary>
+                <div class="otras-listas-menu">
+                    <button class="btn btn-sm btn-light" @onclick="MostrarCatalogo">Todo el inventario</button>
+                    <button class="btn btn-sm btn-light" @onclick="MostrarOmitidos">Omitidos por ahora (@Pedido.Omitidos.Count)</button>
+                    <button class="btn btn-sm btn-light" @onclick="MostrarExcluidos">No se venden</button>
+                </div>
+            </details>
+        </nav>
+
+        @if (!string.IsNullOrWhiteSpace(mensaje))
+        {
+            <div class="alert @(esError ? "alert-danger" : "alert-success") py-2" role="status">@mensaje</div>
+        }
+
+        <section class="pedido-busqueda" aria-label="Buscar y filtrar productos">
+            <div class="busqueda-principal">
+                <div class="busqueda-texto">
+                    <label for="buscarPedido">Buscar producto</label>
+                    <input id="buscarPedido" type="search" class="form-control" placeholder="Nombre, código o referencia"
+                           value="@busqueda" @oninput="CambiarBusqueda" />
+                </div>
+                <div class="busqueda-marca">
+                    <label for="marcaPedido">Marca</label>
+                    <select id="marcaPedido" class="form-select" value="@marcaSeleccionada" @onchange="CambiarMarca">
+                        <option value="">Todas las marcas</option>
+                        @foreach (var marca in marcas) { <option value="@marca">@marca</option> }
+                    </select>
+                </div>
+                @if (vista == "Oportunidades")
+                {
+                    <label class="solo-agotados" for="soloAgotados">
+                        <input id="soloAgotados" type="checkbox" class="form-check-input"
+                               checked="@filtros.UsarMaximoB4" @onchange="CambiarSoloAgotados" />
+                        Solo los que no tengo
+                    </label>
+                }
+            </div>
+
+            <details class="opciones-avanzadas">
+                <summary>Opciones avanzadas</summary>
+                <div class="opciones-contenido">
+                    <div class="opciones-grid">
+                        <div>
+                            <label for="grupoPedido">Grupo de productos</label>
+                            <select id="grupoPedido" class="form-select" value="@grupoSeleccionado" @onchange="CambiarGrupo">
+                                <option value="">Todos los grupos</option>
+                                @foreach (var grupo in grupos) { <option value="@grupo">@grupo</option> }
+                            </select>
+                        </div>
+                        <div>
+                            <label for="cantidadInicial">Empezar cada producto con</label>
+                            <input id="cantidadInicial" type="number" min="0" step="any" class="form-control" @bind="opciones.CantidadInicial" />
+                            <small>Rellena la casilla «Pedir». Puedes cambiarla en cada producto.</small>
+                        </div>
+                        <div>
+                            <label for="reservaPedido">Dejar en cada bodega</label>
+                            <input id="reservaPedido" type="number" min="0" step="any" class="form-control" @bind="opciones.ReservaCentro" />
+                            <small>Si hay 100 y dejas 1, puedes pedir 99. Usa 0 para poder pedir todo.</small>
+                        </div>
+                        @if (vista == "Oportunidades")
+                        {
+                            <div>
+                                <label for="minimoPedido">Mostrar si puedo pedir al menos</label>
+                                <input id="minimoPedido" type="number" min="0" step="any" class="form-control" @bind="opciones.MinimoTransferible" />
+                                <small>Con 10, solo verás productos con 10 o más disponibles en una misma bodega.</small>
+                            </div>
+                            <div>
+                                <label for="ordenPedido">Mostrar primero</label>
+                                <select id="ordenPedido" class="form-select" @bind="opciones.Orden">
+                                    <option value="local">Los que menos tengo</option>
+                                    <option value="centro">Los que más hay para pedir</option>
+                                </select>
+                            </div>
+                        }
+                    </div>
+                    <p class="small text-muted mt-3 mb-2">Estos ajustes no cambian las cantidades ni la reserva de productos que ya agregaste.</p>
+                    <div class="opciones-acciones">
+                        <button class="btn btn-primary btn-sm" @onclick="AplicarFiltros">Aplicar cambios</button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="GuardarFiltros">Guardar para próximos pedidos</button>
+                        <button class="btn btn-link btn-sm" @onclick="RestablecerFiltros">Restablecer</button>
+                    </div>
+                </div>
+            </details>
+            @if (vista == "Oportunidades" && (filtros.UsarMaximoB4 || filtros.MinimoTransferible > 1))
+            {
+                <div class="limites-activos">
+                    <span>Mostrando @(filtros.UsarMaximoB4 ? "solo productos sin stock en B4" : "productos disponibles")@((filtros.MinimoTransferible > 1) ? $" con al menos {Numero(filtros.MinimoTransferible)} para pedir" : "").</span>
+                    <button class="btn btn-link btn-sm" @onclick="QuitarLimites">Ver todos los disponibles</button>
+                </div>
+            }
+        </section>
+
+        <div class="lista-toolbar">
+            <div><h2>@TituloVista</h2><span class="text-muted small">@productos.Count productos</span></div>
+            @if (vista != "Mi pedido")
+            {
+                <div class="seleccion-acciones">
+                    <button class="btn btn-outline-secondary btn-sm" disabled="@(productosPagina.Count == 0)"
+                            @onclick="() => SeleccionarPagina(productosPagina)">Marcar página</button>
+                    @if (seleccionados.Count > 0)
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="AgregarMarcados">Agregar marcados (@seleccionados.Count)</button>
+                        <button class="btn btn-link btn-sm" @onclick="LimpiarSeleccion">Desmarcar</button>
+                    }
+                </div>
+            }
+        </div>
+        <p class="lista-ayuda">@AyudaVista</p>
+
+        @if (vista == "Catálogo" && !TieneBusqueda() && !mostrarCatalogoCompleto)
+        {
+            <div class="alert alert-light border">Busca un producto o <button class="btn btn-link p-0" @onclick="MostrarTodoElCatalogo">muestra todo el inventario</button>.</div>
+        }
+
+        <div class="pedido-tabla-wrap">
+            <table class="table pedido-tabla align-middle mb-0">
+                <thead>
+                    <tr>
+                        @if (vista != "Mi pedido") { <th class="col-seleccion"><span class="visually-hidden">Marcar</span></th> }
+                        <th class="col-producto">Producto</th>
+                        <th class="col-stock">Tengo<small>Mi sucursal</small></th>
+                        <th class="col-stock">Matriz<small>Para pedir</small></th>
+                        <th class="col-stock">Ebenezer<small>Para pedir</small></th>
+                        @if (vista == "Mi pedido") { <th class="col-origen">Pedir a</th> }
+                        <th class="col-cantidad">Pedir</th>
+                        <th class="col-acciones"><span class="visually-hidden">Acciones</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var producto in productosPagina)
+                    {
+                        var item = Pedido.Obtener(producto.Codigo);
+                        <tr @key="producto.Codigo">
+                            @if (vista != "Mi pedido")
+                            {
+                                <td><input type="checkbox" class="form-check-input" aria-label="@($"Marcar {producto.Descripcion}")"
+                                    disabled="@(item is not null || ObtenerDisponibleCentro(producto) <= 0)"
+                                    checked="@seleccionados.Contains(producto.Codigo)" @onchange="e => CambiarSeleccion(producto.Codigo, e)" /></td>
+                            }
+                            <td class="producto-info">
+                                <div class="producto-nombre">@producto.Descripcion</div>
+                                <div class="producto-meta">@producto.Codigo · @producto.Marca</div>
+                                <details class="producto-detalles">
+                                    <summary>Ver detalle</summary>
+                                    <div>Referencia: @producto.Referencia</div>
+                                    <div>Unidad: @producto.UnidadMedida</div>
+                                    <div>Nacional: @Numero(producto.TotalCalculado)</div>
+                                    <div>Bame: @Numero(producto.ObtenerStock("B39")) — solo referencia</div>
+                                    <div>Se dejan @Numero(item?.ReservaCentro ?? filtros.ReservaCentro) en cada bodega.</div>
+                                </details>
+                            </td>
+                            <td class="numero-stock"><strong>@Numero(producto.ObtenerStock("B4"))</strong></td>
+                            @foreach (var bodega in new[] { "B1", "B40" })
+                            {
+                                <td class="numero-stock">
+                                    @if (Configuracion.Actual.OrigenesHabilitados.Contains(bodega))
+                                    {
+                                        @Numero(ReglasAbastecimiento.Disponible(producto, bodega, item?.ReservaCentro ?? filtros.ReservaCentro))
+                                    }
+                                    else { <span class="text-muted" title="Bodega desactivada en configuración">—</span> }
+                                </td>
+                            }
+                            @if (vista == "Mi pedido" && item is not null)
+                            {
+                                <td><select class="form-select form-select-sm" aria-label="@($"Bodega para {producto.Descripcion}")"
+                                            value="@item.BodegaOrigen" @onchange="e => CambiarBodega(producto, e)">
+                                    @foreach (var bodega in BodegasConStock(producto))
+                                    { <option value="@bodega">@Configuracion.ObtenerNombreBodega(bodega)</option> }
+                                </select></td>
+                            }
+                            <td>
+                                @if (item is not null)
+                                {
+                                    <input @key="revisionCantidades" type="number" min="0" step="any" class="form-control form-control-sm cantidad-input"
+                                           aria-label="@($"Cantidad a pedir de {producto.Descripcion}")"
+                                           max="@ReglasAbastecimiento.Disponible(producto, item.BodegaOrigen, item.ReservaCentro).ToString(CultureInfo.InvariantCulture)"
+                                           value="@item.CantidadSolicitada.ToString(CultureInfo.InvariantCulture)" @onchange="e => CambiarCantidad(producto, e)" />
+                                }
+                                else
+                                {
+                                    <input @key="revisionCantidades" type="number" min="0" step="any" class="form-control form-control-sm cantidad-input"
+                                           aria-label="@($"Cantidad a pedir de {producto.Descripcion}")" disabled="@(ObtenerDisponibleCentro(producto) <= 0)"
+                                           max="@ObtenerDisponibleCentro(producto).ToString(CultureInfo.InvariantCulture)"
+                                           value="@CantidadParaAgregar(producto).ToString(CultureInfo.InvariantCulture)" @onchange="e => PrepararCantidad(producto, e)" />
+                                }
+                            </td>
+                            <td>
+                                <div class="fila-acciones">
+                                    @if (item is not null)
+                                    {
+                                        @if (vista != "Mi pedido") { <span class="text-success small">En tu pedido</span> }
+                                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => Quitar(producto.Codigo)">Quitar</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-primary btn-sm" disabled="@(ObtenerDisponibleCentro(producto) <= 0)"
+                                                @onclick="() => AgregarUno(producto)">Agregar</button>
+                                        @if (vista == "Oportunidades")
+                                        {
+                                            <details class="fila-mas">
+                                                <summary>Más</summary>
+                                                <div class="fila-mas-opciones">
+                                                    <button class="btn btn-light btn-sm" @onclick="() => Omitir(producto.Codigo)">Omitir por ahora</button>
+                                                    <button class="btn btn-light btn-sm" @onclick="() => ExcluirUno(producto)">No se vende</button>
+                                                </div>
+                                            </details>
+                                        }
+                                        @if (Configuracion.Actual.ProductosNoSugerir.Contains(producto.Codigo))
+                                        { <button class="btn btn-link btn-sm" @onclick="() => Reactivar(producto)">Volver a revisar</button> }
+                                        @if (Pedido.Omitidos.Contains(producto.Codigo))
+                                        { <button class="btn btn-link btn-sm" @onclick="() => RecuperarOmitido(producto.Codigo)">Volver a revisar</button> }
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    @if (productosPagina.Count == 0)
+                    {
+                        <tr><td colspan="7" class="text-center text-muted py-5">@MensajeListaVacia</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <footer class="pedido-paginacion">
+            <button class="btn btn-outline-secondary btn-sm" disabled="@(pagina <= 1)" @onclick="PaginaAnterior">Anterior</button>
+            <span>Página @pagina de @totalPaginas</span>
+            <button class="btn btn-outline-secondary btn-sm" disabled="@(pagina >= totalPaginas)" @onclick="PaginaSiguiente">Siguiente</button>
+        </footer>
+        <p class="pedido-nota">El pedido se mantiene mientras esta página siga abierta. Recargar o importar otro inventario reinicia el pedido.</p>
+    }
+</div>
+@code {
+    private const int TamanoPagina = 25;
+
+    private const string ClaveFiltros =
+        "PedidoMercaderia.Filtros.v4";
+
+    private FiltrosPedido filtros = new();
+    private FiltrosPedido opciones = new();
+
+    private static string Numero(decimal valor) => valor.ToString("0.##", CultureInfo.CurrentCulture);
+
+    private string TituloVista => vista switch
+    {
+        "Oportunidades" => "Productos por revisar",
+        "Catálogo" => "Todo el inventario",
+        "Omitidos" => "Omitidos por ahora",
+        "No sugerir" => "Productos que no se venden",
+        _ => "Mi pedido"
+    };
+
+    private string AyudaVista => vista switch
+    {
+        "Oportunidades" => "Escribe cuánto necesitas y pulsa Agregar. Matriz y Ebenezer muestran lo que puedes pedir.",
+        "Mi pedido" => "Revisa tus cantidades y elige de qué bodega pedir cada producto.",
+        "Omitidos" => "Los apartaste solo para este pedido. Puedes recuperarlos aquí.",
+        "No sugerir" => "No aparecerán en próximos pedidos. Usa Volver a revisar si quieres recuperarlos.",
+        _ => "Aquí también aparecen productos sin disponibilidad y los que apartaste."
+    };
+
+    private string MensajeListaVacia => vista switch
+    {
+        "Mi pedido" => "Aún no hay productos que coincidan. Agrega productos desde Por revisar.",
+        "Omitidos" => "No hay productos omitidos que coincidan con tu búsqueda.",
+        "No sugerir" => "No hay productos excluidos que coincidan con tu búsqueda.",
+        _ => "No hay productos para mostrar. Revisa la búsqueda, las opciones o las otras listas."
+    };
+
+    private string vista = "Oportunidades";
+    private string busqueda = "";
+    private string marcaSeleccionada = "";
+    private string grupoSeleccionado = "";
+
+    private string? mensaje;
+    private bool esError;
+
+    private int pagina = 1;
+    private bool mostrarCatalogoCompleto;
+
+    private List<string> marcas = new();
+    private List<string> grupos = new();
+
+    private HashSet<string> seleccionados =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, decimal> cantidadesPreparadas = new(StringComparer.OrdinalIgnoreCase);
+    private int revisionCantidades;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Configuracion.CargarAsync();
+
+        try
+        {
+            string? json = await JS.InvokeAsync<string?>(
+                "localStorage.getItem", ClaveFiltros);
+
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                filtros = JsonSerializer.Deserialize<FiltrosPedido>(json)
+                    ?? new FiltrosPedido();
+            }
+            else
+            {
+                string? anteriores = await JS.InvokeAsync<string?>(
+                    "localStorage.getItem", "PedidoMercaderia.Filtros.v3");
+                if (string.IsNullOrWhiteSpace(anteriores))
+                    anteriores = await JS.InvokeAsync<string?>("localStorage.getItem", "PedidoMercaderia.Filtros.v2");
+                if (!string.IsNullOrWhiteSpace(anteriores))
+                {
+                    var anterioresFiltros = JsonSerializer.Deserialize<FiltrosPedido>(anteriores);
+                    if (anterioresFiltros is not null)
+                    {
+                        filtros.ReservaCentro = anterioresFiltros.ReservaCentro;
+                        filtros.CantidadInicial = anterioresFiltros.CantidadInicial;
+                    }
+                    mensaje = "Simplificamos la revisión: ya no se ocultan productos por porcentajes. Se conservaron tu cantidad inicial y las unidades que dejas en cada bodega.";
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            filtros = new FiltrosPedido();
+        }
+        catch (JSException)
+        {
+            filtros = new FiltrosPedido();
+        }
+
+        if (!ValidarFiltros())
+            filtros = new FiltrosPedido();
+        filtros.StockMaximoB4 = 0;
+        opciones = filtros.Copiar();
+
+        if (!Inventario.TieneInventario)
+            return;
+
+        marcas = Inventario.Productos
+            .Select(p => p.Marca)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToList();
+
+        grupos = Inventario.Productos
+            .Select(p => p.Grupo)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToList();
+
+        int ajustes = Pedido.ValidarBorrador(
+            Inventario.Productos,
+            Configuracion.Actual);
+        if (ajustes > 0)
+            mensaje = $"Se ajustaron {ajustes} datos del pedido según los centros habilitados y su disponibilidad.";
+    }
+
+    private decimal ObtenerDisponibleCentro(
+        ProductoInventario producto)
+    {
+        return ReglasAbastecimiento.MejorDisponible(producto, Configuracion.Actual, filtros.ReservaCentro);
+    }
+
+    private bool EsOportunidad(ProductoInventario producto)
+    {
+        return !Pedido.Contiene(producto.Codigo)
+            && !Pedido.Omitidos.Contains(producto.Codigo)
+            && ReglasAbastecimiento.EsOportunidad(producto, Configuracion.Actual, filtros);
+    }
+
+    private bool TieneBusqueda()
+    {
+        return busqueda.Trim().Length >= 2 ||
+               !string.IsNullOrWhiteSpace(marcaSeleccionada) ||
+               !string.IsNullOrWhiteSpace(grupoSeleccionado);
+    }
+
+    private List<ProductoInventario> ObtenerFiltrados()
+    {
+        if (vista == "Catálogo" &&
+            !TieneBusqueda() &&
+            !mostrarCatalogoCompleto)
+        {
+            return new List<ProductoInventario>();
+        }
+
+        IEnumerable<ProductoInventario> consulta =
+            Inventario.Productos;
+
+        if (vista == "Oportunidades")
+        {
+            consulta = consulta.Where(EsOportunidad);
+        }
+        else if (vista == "Mi pedido")
+        {
+            consulta = consulta.Where(p =>
+                Pedido.Contiene(p.Codigo));
+        }
+        else if (vista == "Omitidos")
+        {
+            consulta = consulta.Where(p => Pedido.Omitidos.Contains(p.Codigo));
+        }
+        else if (vista == "No sugerir")
+        {
+            consulta = consulta.Where(p => Configuracion.Actual.ProductosNoSugerir.Contains(p.Codigo));
+        }
+
+        if (!string.IsNullOrWhiteSpace(busqueda))
+        {
+            string texto = busqueda.Trim();
+
+            consulta = consulta.Where(p =>
+                p.Codigo.Contains(
+                    texto, StringComparison.OrdinalIgnoreCase) ||
+                p.Descripcion.Contains(
+                    texto, StringComparison.OrdinalIgnoreCase) ||
+                p.Referencia.Contains(
+                    texto, StringComparison.OrdinalIgnoreCase) ||
+                p.Marca.Contains(
+                    texto, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(marcaSeleccionada))
+        {
+            consulta = consulta.Where(p =>
+                string.Equals(
+                    p.Marca,
+                    marcaSeleccionada,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(grupoSeleccionado))
+        {
+            consulta = consulta.Where(p =>
+                string.Equals(
+                    p.Grupo,
+                    grupoSeleccionado,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (vista == "Oportunidades")
+        {
+            consulta = filtros.Orden switch
+            {
+                "centro" => consulta
+                    .OrderByDescending(ObtenerDisponibleCentro)
+                    .ThenBy(p => p.Descripcion),
+
+                _ => consulta
+                    .OrderBy(p => p.ObtenerStock("B4"))
+                    .ThenByDescending(ObtenerDisponibleCentro)
+                    .ThenBy(p => p.Codigo)
+            };
+        }
+        else
+        {
+            consulta = consulta
+                .OrderBy(p => p.Marca)
+                .ThenBy(p => p.Descripcion);
+        }
+
+        return consulta.ToList();
+    }
+
+    private IEnumerable<string> BodegasConStock(
+        ProductoInventario producto)
+    {
+        decimal reserva = Pedido.Obtener(producto.Codigo)?.ReservaCentro ?? filtros.ReservaCentro;
+        return Configuracion.Actual.OrigenesHabilitados
+            .Where(b => ReglasAbastecimiento.Disponible(producto, b, reserva) > 0)
+            .OrderByDescending(b => producto.ObtenerStock(b));
+    }
+
+    private async Task GuardarFiltros()
+    {
+        if (!ValidarFiltros(opciones))
+            return;
+
+        AplicarFiltros();
+
+        try
+        {
+            string json = JsonSerializer.Serialize(filtros);
+
+            await JS.InvokeVoidAsync(
+                "localStorage.setItem",
+                ClaveFiltros,
+                json);
+
+            esError = false;
+            mensaje = "Opciones guardadas para tus próximos pedidos.";
+        }
+        catch (Exception ex)
+        {
+            esError = true;
+            mensaje = ex.Message;
+        }
+    }
+
+    private bool ValidarFiltros(FiltrosPedido? valores = null)
+    {
+        var actuales = valores ?? filtros;
+        if (actuales.ReservaCentro < 0 ||
+            actuales.MinimoTransferible <= 0 ||
+            actuales.CantidadInicial <= 0 ||
+            actuales.StockMaximoB4 < 0)
+        {
+            esError = true;
+            mensaje = "La cantidad inicial y el mínimo para mostrar deben ser mayores que cero. Las unidades que dejas en cada bodega pueden ser cero, pero no negativas.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private void AplicarFiltros()
+    {
+        if (!ValidarFiltros(opciones))
+            return;
+
+        filtros = opciones.Copiar();
+
+        pagina = 1;
+        seleccionados.Clear();
+        esError = false;
+        mensaje = "Opciones aplicadas. Los productos que ya agregaste conservan sus cantidades.";
+    }
+
+    private void RestablecerFiltros()
+    {
+        filtros = new FiltrosPedido();
+        opciones = filtros.Copiar();
+        pagina = 1;
+        seleccionados.Clear();
+
+        mensaje = "Se restablecieron las opciones iniciales.";
+        esError = false;
+    }
+
+    private void CambiarSoloAgotados(ChangeEventArgs e)
+    {
+        filtros.UsarMaximoB4 = e.Value is true;
+        filtros.StockMaximoB4 = 0;
+        opciones.UsarMaximoB4 = filtros.UsarMaximoB4;
+        opciones.StockMaximoB4 = 0;
+        pagina = 1;
+        seleccionados.Clear();
+        mensaje = null;
+    }
+
+    private void QuitarLimites()
+    {
+        filtros.UsarMaximoB4 = false;
+        filtros.MinimoTransferible = 1;
+        opciones.UsarMaximoB4 = false;
+        opciones.MinimoTransferible = 1;
+        pagina = 1;
+        seleccionados.Clear();
+        mensaje = null;
+    }
+
+    private void CambiarSeleccion(
+        string codigo,
+        ChangeEventArgs e)
+    {
+        bool marcado = e.Value is bool valor && valor;
+
+        if (marcado)
+            seleccionados.Add(codigo);
+        else
+            seleccionados.Remove(codigo);
+    }
+
+    private void SeleccionarPagina(
+        IEnumerable<ProductoInventario> productos)
+    {
+        foreach (var producto in productos)
+        {
+            if (!Pedido.Contiene(producto.Codigo) && ObtenerDisponibleCentro(producto) > 0)
+                seleccionados.Add(producto.Codigo);
+        }
+    }
+
+    private void SeleccionarTodos(
+        IEnumerable<ProductoInventario> productos)
+    {
+        SeleccionarPagina(productos);
+    }
+
+    private void LimpiarSeleccion()
+    {
+        seleccionados.Clear();
+    }
+
+    private void AgregarUno(ProductoInventario producto)
+    {
+        if (!ValidarFiltros())
+            return;
+
+        bool agregado = Pedido.Agregar(
+            producto,
+            Configuracion.Actual,
+            CantidadParaAgregar(producto),
+            filtros.ReservaCentro);
+
+        if (agregado)
+        {
+            Pedido.Omitidos.Remove(producto.Codigo);
+            seleccionados.Remove(producto.Codigo);
+        }
+
+        esError = !agregado;
+
+        mensaje = agregado
+            ? $"{producto.Codigo} agregado con {Pedido.Obtener(producto.Codigo)!.CantidadSolicitada} unidades. Puedes ajustar la cantidad en Mi pedido."
+            : "No existe suficiente stock en un centro seleccionado.";
+    }
+
+    private void AgregarMarcados()
+    {
+        if (!ValidarFiltros())
+            return;
+
+        // Solo operamos sobre los resultados del filtro actual.
+        var productos = ObtenerFiltrados()
+            .Where(p => seleccionados.Contains(p.Codigo) && !Pedido.Contiene(p.Codigo))
+            .ToList();
+
+        int agregados = 0;
+        foreach (var producto in productos)
+        {
+            if (Pedido.Agregar(producto, Configuracion.Actual,
+                CantidadParaAgregar(producto), filtros.ReservaCentro))
+                agregados++;
+        }
+
+        foreach (var producto in productos.Where(p => Pedido.Contiene(p.Codigo)))
+            Pedido.Omitidos.Remove(producto.Codigo);
+
+        seleccionados.Clear();
+
+        esError = false;
+        mensaje = $"{agregados} productos añadidos al pedido. {productos.Count - agregados} no se pudieron agregar. Ajusta las cantidades en Mi pedido.";
+    }
+
+    private async Task ExcluirUno(ProductoInventario producto)
+    {
+        await ExcluirProductos(new[] { producto.Codigo });
+    }
+
+    private async Task ExcluirMarcados()
+    {
+        var codigos = ObtenerFiltrados()
+            .Where(p => seleccionados.Contains(p.Codigo))
+            .Select(p => p.Codigo)
+            .ToList();
+
+        await ExcluirProductos(codigos);
+    }
+
+    private async Task ExcluirProductos(
+        IEnumerable<string> codigos)
+    {
+        var lista = codigos.ToList();
+        var anteriores = new HashSet<string>(Configuracion.Actual.ProductosNoSugerir,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (string codigo in lista)
+        {
+            Configuracion.Actual.ProductosNoSugerir.Add(codigo);
+        }
+
+        try
+        {
+            await Configuracion.GuardarAsync();
+
+            foreach (var codigo in lista)
+                Pedido.Omitidos.Remove(codigo);
+
+            seleccionados.Clear();
+            pagina = 1;
+
+            esError = false;
+            mensaje = $"{lista.Count} productos marcados como No sugerir.";
+        }
+        catch (Exception ex)
+        {
+            Configuracion.Actual.ProductosNoSugerir = anteriores;
+            esError = true;
+            mensaje = ex.Message;
+        }
+    }
+
+    private async Task Reactivar(ProductoInventario producto)
+    {
+        bool estabaExcluido = Configuracion.Actual.ProductosNoSugerir.Remove(
+            producto.Codigo);
+
+        try
+        {
+            await Configuracion.GuardarAsync();
+
+            esError = false;
+            mensaje = "Producto habilitado para sugerencias.";
+        }
+        catch (Exception ex)
+        {
+            if (estabaExcluido)
+                Configuracion.Actual.ProductosNoSugerir.Add(producto.Codigo);
+            esError = true;
+            mensaje = ex.Message;
+        }
+    }
+
+    private void Quitar(string codigo)
+    {
+        Pedido.Quitar(codigo);
+        seleccionados.Remove(codigo);
+        mensaje = null;
+    }
+
+    private void CambiarCantidad(
+        ProductoInventario producto,
+        ChangeEventArgs e)
+    {
+        revisionCantidades++;
+        string texto = e.Value?.ToString() ?? "";
+
+        if (!decimal.TryParse(
+            texto,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out decimal cantidad) ||
+            !Pedido.CambiarCantidad(producto, cantidad))
+        {
+            esError = true;
+            mensaje = "Cantidad inválida o superior al stock " +
+                      "disponible después de dejar la reserva del centro.";
+            return;
+        }
+
+        mensaje = null;
+    }
+
+    private decimal CantidadParaAgregar(ProductoInventario producto) =>
+        Math.Min(cantidadesPreparadas.GetValueOrDefault(producto.Codigo, filtros.CantidadInicial),
+            ObtenerDisponibleCentro(producto));
+
+    private void PrepararCantidad(ProductoInventario producto, ChangeEventArgs e)
+    {
+        revisionCantidades++;
+        if (!decimal.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture,
+                out decimal cantidad) || cantidad <= 0 || cantidad > ObtenerDisponibleCentro(producto))
+        {
+            esError = true;
+            mensaje = "Escribe una cantidad mayor que cero y dentro de la disponibilidad de un centro. No se guardó el cambio.";
+            return;
+        }
+        cantidadesPreparadas[producto.Codigo] = cantidad;
+        mensaje = null;
+    }
+
+    private void CambiarBodega(
+        ProductoInventario producto,
+        ChangeEventArgs e)
+    {
+        string codigo = e.Value?.ToString() ?? "";
+        decimal anterior = Pedido.Obtener(producto.Codigo)?.CantidadSolicitada ?? 0;
+
+        if (!Pedido.CambiarBodega(
+            producto,
+            codigo,
+            Configuracion.Actual))
+        {
+            esError = true;
+            mensaje = "No hay stock en la bodega seleccionada.";
+            return;
+        }
+
+        esError = false;
+        decimal actual = Pedido.Obtener(producto.Codigo)?.CantidadSolicitada ?? 0;
+        mensaje = actual < anterior
+            ? $"La cantidad se ajustó de {anterior} a {actual} por la disponibilidad del nuevo centro."
+            : null;
+    }
+
+    private void CambiarBusqueda(ChangeEventArgs e)
+    {
+        busqueda = e.Value?.ToString() ?? "";
+        pagina = 1;
+        seleccionados.Clear();
+    }
+
+    private void CambiarMarca(ChangeEventArgs e)
+    {
+        marcaSeleccionada = e.Value?.ToString() ?? "";
+        pagina = 1;
+        seleccionados.Clear();
+    }
+
+    private void CambiarGrupo(ChangeEventArgs e)
+    {
+        grupoSeleccionado = e.Value?.ToString() ?? "";
+        pagina = 1;
+        seleccionados.Clear();
+    }
+
+    private void MostrarOportunidades()
+    {
+        vista = "Oportunidades";
+        pagina = 1;
+        seleccionados.Clear();
+    }
+
+    private void MostrarCatalogo()
+    {
+        vista = "Catálogo";
+        pagina = 1;
+        seleccionados.Clear();
+    }
+
+    private void MostrarTodoElCatalogo()
+    {
+        mostrarCatalogoCompleto = true;
+        pagina = 1;
+    }
+
+    private void MostrarMiPedido()
+    {
+        vista = "Mi pedido";
+        pagina = 1;
+        seleccionados.Clear();
+        busqueda = "";
+        marcaSeleccionada = "";
+        grupoSeleccionado = "";
+    }
+
+    private void MostrarOmitidos()
+    {
+        MostrarMiPedido();
+        vista = "Omitidos";
+    }
+
+    private void MostrarExcluidos()
+    {
+        MostrarMiPedido();
+        vista = "No sugerir";
+    }
+
+    private void Omitir(string codigo)
+    {
+        Pedido.Omitidos.Add(codigo);
+        seleccionados.Remove(codigo);
+        mensaje = null;
+    }
+
+    private void OmitirMarcados()
+    {
+        foreach (var producto in ObtenerFiltrados().Where(p => seleccionados.Contains(p.Codigo)).ToList())
+            Omitir(producto.Codigo);
+    }
+
+    private void RecuperarOmitido(string codigo)
+    {
+        Pedido.Omitidos.Remove(codigo);
+        seleccionados.Remove(codigo);
+    }
+
+    private void PaginaAnterior()
+    {
+        pagina = Math.Max(1, pagina - 1);
+    }
+
+    private void PaginaSiguiente()
+    {
+        pagina++;
+    }
+}
+

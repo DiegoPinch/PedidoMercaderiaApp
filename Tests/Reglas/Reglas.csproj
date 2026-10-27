@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="../../PedidoMercaderia/Models/*.cs" Link="Models/%(Filename)%(Extension)" />
+    <Compile Include="../../PedidoMercaderia/Service/ReglasAbastecimiento.cs" Link="ReglasAbastecimiento.cs" />
+    <Compile Include="../../PedidoMercaderia/Service/PedidoService.cs" Link="PedidoService.cs" />
+    <Compile Include="../../PedidoMercaderia/Service/ConfiguracionService.cs" Link="ConfiguracionService.cs" />
+    <RazorComponent Include="../../PedidoMercaderia/Pages/RevisarPedido.razor" Link="Components/RevisarPedido.razor" />
+  </ItemGroup>
+</Project>

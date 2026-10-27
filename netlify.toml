@@ -1,0 +1,15 @@
+
+[build]
+  command = "bash build.sh"
+  publish = "dist/wwwroot"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/index.html"
+
+  [headers.values]
+    Cache-Control = "no-cache"
