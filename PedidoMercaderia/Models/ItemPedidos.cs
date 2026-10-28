@@ -10,5 +10,7 @@ namespace PedidoMercaderia.Models
         public decimal CantidadSolicitada { get; set; }
 
         public decimal ReservaCentro { get; set; }
+
+        public string Comentario { get; set; } = string.Empty;
     }
 }

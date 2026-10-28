@@ -2,6 +2,7 @@ using Microsoft.JSInterop;
 using PedidoMercaderia.Models;
 using PedidoMercaderia.Services;
 
+System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 int comprobaciones = 0;
 void Verificar(bool condicion, string caso)
 {
@@ -89,6 +90,8 @@ Verificar(js.Json is not null && !js.Json.Contains("B39"), "Guardar persiste sol
 Verificar(servicio.ObtenerNombreBodega("B40") == "Ebenezer", "B40 se identifica como Ebenezer");
 Verificar(servicio.ObtenerNombreBodega("B39") == "Bame", "B39 se identifica como Bame");
 
+PruebasActividad.Ejecutar(Verificar);
+PruebasExportacion.Ejecutar(Verificar);
 Console.WriteLine($"{comprobaciones} comprobaciones correctas.");
 
 if (args.Length == 2 && args[0] == "--vista")

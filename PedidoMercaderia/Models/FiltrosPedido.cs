@@ -20,6 +20,9 @@ namespace PedidoMercaderia.Models
         // Orden de presentación
         public string Orden { get; set; } = "local";
 
+        public bool ApartarSinMovimiento { get; set; }
+        public int DiasSinMovimiento { get; set; } = 180;
+
         public FiltrosPedido Copiar() => (FiltrosPedido)MemberwiseClone();
     }
 }

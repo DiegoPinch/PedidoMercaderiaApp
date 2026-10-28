@@ -7,6 +7,7 @@
 @inject InventarioService Inventario
 @inject ConfiguracionService Configuracion
 @inject PedidoService Pedido
+@inject ActividadService Actividad
 @inject IJSRuntime JS
 
 <PageTitle>Preparar pedido</PageTitle>
@@ -45,12 +46,14 @@
                     aria-pressed="@(vista == "Oportunidades")" @onclick="MostrarOportunidades">Por revisar</button>
             <button class="btn @(vista == "Mi pedido" ? "btn-primary" : "btn-outline-secondary")"
                     aria-pressed="@(vista == "Mi pedido")" @onclick="MostrarMiPedido">Mi pedido (@Pedido.TotalProductos)</button>
-            <details class="otras-listas">
+            <details class="otras-listas" @key="vista">
                 <summary>Otras listas</summary>
                 <div class="otras-listas-menu">
                     <button class="btn btn-sm btn-light" @onclick="MostrarCatalogo">Todo el inventario</button>
                     <button class="btn btn-sm btn-light" @onclick="MostrarOmitidos">Omitidos por ahora (@Pedido.Omitidos.Count)</button>
                     <button class="btn btn-sm btn-light" @onclick="MostrarExcluidos">No se venden</button>
+                    @if (Actividad.TieneReporte)
+                    { <button class="btn btn-sm btn-light" @onclick="MostrarSinMovimiento">Sin movimiento en B4</button> }
                 </div>
             </details>
         </nav>
@@ -83,6 +86,35 @@
                     </label>
                 }
             </div>
+
+            @if (vista == "Oportunidades" || vista == "Sin movimiento")
+            {
+                @if (Actividad.Actual is ReporteActividad reporte)
+                {
+                    <div class="actividad-control">
+                        <label class="actividad-toggle" for="apartarActividad">
+                            <input id="apartarActividad" type="checkbox" class="form-check-input"
+                                   checked="@filtros.ApartarSinMovimiento" @onchange="CambiarFiltroActividad" />
+                            Apartar productos con stock y sin movimiento durante
+                        </label>
+                        <select class="form-select form-select-sm actividad-plazo" aria-label="Días sin movimiento"
+                                value="@filtros.DiasSinMovimiento" @onchange="CambiarDiasActividad">
+                            <option value="30">30 días</option>
+                            <option value="90">90 días</option>
+                            <option value="180">180 días (aprox. 6 meses)</option>
+                            <option value="365">365 días (aprox. 1 año)</option>
+                        </select>
+                        <button class="btn btn-link btn-sm" @onclick="MostrarSinMovimiento">Ver lista</button>
+                        <small>Datos al @reporte.FechaReporte.ToString("dd/MM/yyyy"). Incluyen ventas y transferencias.
+                            Los agotados, los productos sin información y tu pedido actual se conservan.
+                            <a href="importar">Cambiar reporte</a></small>
+                    </div>
+                }
+                else
+                {
+                    <div class="mt-3 small"><a href="importar">Cargar reporte de movimientos de B4 para reducir la revisión</a></div>
+                }
+            }
 
             <details class="opciones-avanzadas">
                 <summary>Opciones avanzadas</summary>
@@ -140,6 +172,12 @@
 
         <div class="lista-toolbar">
             <div><h2>@TituloVista</h2><span class="text-muted small">@productos.Count productos</span></div>
+            @if (vista == "Mi pedido")
+            {
+                <button class="btn btn-primary btn-sm" disabled="@(exportando || Pedido.TotalProductos == 0)" @onclick="ExportarPedido">
+                    @(exportando ? "Preparando Excel…" : $"Descargar Excel ({Pedido.TotalProductos})")
+                </button>
+            }
             @if (vista != "Mi pedido")
             {
                 <div class="seleccion-acciones">
@@ -160,15 +198,15 @@
             <div class="alert alert-light border">Busca un producto o <button class="btn btn-link p-0" @onclick="MostrarTodoElCatalogo">muestra todo el inventario</button>.</div>
         }
 
-        <div class="pedido-tabla-wrap">
+        <div class="pedido-tabla-wrap" @key="(vista, pagina)" role="region" aria-label="Productos del pedido" tabindex="0">
             <table class="table pedido-tabla align-middle mb-0">
                 <thead>
                     <tr>
                         @if (vista != "Mi pedido") { <th class="col-seleccion"><span class="visually-hidden">Marcar</span></th> }
-                        <th class="col-producto">Producto</th>
-                        <th class="col-stock">Tengo<small>Mi sucursal</small></th>
-                        <th class="col-stock">Matriz<small>Para pedir</small></th>
-                        <th class="col-stock">Ebenezer<small>Para pedir</small></th>
+                        <th class="col-producto">Código / descripción</th>
+                        <th class="col-stock" title="Existencias en mi sucursal B4">Tengo</th>
+                        <th class="col-stock" title="Cantidad disponible para pedir a Matriz">Matriz</th>
+                        <th class="col-stock" title="Cantidad disponible para pedir a Ebenezer">Ebenezer</th>
                         @if (vista == "Mi pedido") { <th class="col-origen">Pedir a</th> }
                         <th class="col-cantidad">Pedir</th>
                         <th class="col-acciones"><span class="visually-hidden">Acciones</span></th>
@@ -186,16 +224,36 @@
                                     checked="@seleccionados.Contains(producto.Codigo)" @onchange="e => CambiarSeleccion(producto.Codigo, e)" /></td>
                             }
                             <td class="producto-info">
-                                <div class="producto-nombre">@producto.Descripcion</div>
-                                <div class="producto-meta">@producto.Codigo · @producto.Marca</div>
                                 <details class="producto-detalles">
-                                    <summary>Ver detalle</summary>
+                                    <summary title="Ver detalle del producto" aria-label="@($"Ver detalle de {producto.Codigo}")"><strong class="producto-codigo">@producto.Codigo</strong></summary>
+                                    <div class="producto-descripcion-completa">@producto.Descripcion</div>
+                                    <div>Marca: @producto.Marca</div>
                                     <div>Referencia: @producto.Referencia</div>
                                     <div>Unidad: @producto.UnidadMedida</div>
                                     <div>Nacional: @Numero(producto.TotalCalculado)</div>
                                     <div>Bame: @Numero(producto.ObtenerStock("B39")) — solo referencia</div>
                                     <div>Se dejan @Numero(item?.ReservaCentro ?? filtros.ReservaCentro) en cada bodega.</div>
+                                    @if (Actividad.Actual is ReporteActividad datos)
+                                    {
+                                        @if (Actividad.Obtener(producto.Codigo) is ActividadProducto dato)
+                                        {
+                                            <div>Sin actividad: @dato.DiasSinActividad días al @datos.FechaReporte.ToString("dd/MM/yyyy").</div>
+                                            @if (dato.UltimoMovimiento is DateOnly ultimo)
+                                            { <div>Último movimiento: @ultimo.ToString("dd/MM/yyyy")</div> }
+                                            <div>Stock en el reporte B4: @Numero(dato.StockB4)</div>
+                                        }
+                                        else { <div>Sin información de actividad: no se aparta automáticamente.</div> }
+                                    }
                                 </details>
+                                <div class="producto-descripcion" title="@producto.Descripcion">@producto.Descripcion</div>
+                                @if (vista == "Mi pedido" && item is not null)
+                                {
+                                    <input class="form-control form-control-sm pedido-comentario" type="text" maxlength="300"
+                                           placeholder="Comentario opcional" aria-label="@($"Comentario para {producto.Codigo}")"
+                                           @bind="item.Comentario" @bind:event="oninput" />
+                                }
+                                @if (vista == "Sin movimiento" && Actividad.Obtener(producto.Codigo) is ActividadProducto actividad)
+                                { <div class="actividad-producto">@actividad.DiasSinActividad días sin movimiento</div> }
                             </td>
                             <td class="numero-stock"><strong>@Numero(producto.ObtenerStock("B4"))</strong></td>
                             @foreach (var bodega in new[] { "B1", "B40" })
@@ -246,7 +304,7 @@
                                         @if (vista == "Oportunidades")
                                         {
                                             <details class="fila-mas">
-                                                <summary>Más</summary>
+                                                <summary title="Más acciones" aria-label="@($"Más acciones para {producto.Codigo}")">⋯</summary>
                                                 <div class="fila-mas-opciones">
                                                     <button class="btn btn-light btn-sm" @onclick="() => Omitir(producto.Codigo)">Omitir por ahora</button>
                                                     <button class="btn btn-light btn-sm" @onclick="() => ExcluirUno(producto)">No se vende</button>
@@ -257,6 +315,8 @@
                                         { <button class="btn btn-link btn-sm" @onclick="() => Reactivar(producto)">Volver a revisar</button> }
                                         @if (Pedido.Omitidos.Contains(producto.Codigo))
                                         { <button class="btn btn-link btn-sm" @onclick="() => RecuperarOmitido(producto.Codigo)">Volver a revisar</button> }
+                                        @if (vista == "Sin movimiento")
+                                        { <button class="btn btn-link btn-sm" @onclick="() => RecuperarActividad(producto.Codigo)">Incluir esta vez</button> }
                                     }
                                 </div>
                             </td>
@@ -274,7 +334,7 @@
             <span>Página @pagina de @totalPaginas</span>
             <button class="btn btn-outline-secondary btn-sm" disabled="@(pagina >= totalPaginas)" @onclick="PaginaSiguiente">Siguiente</button>
         </footer>
-        <p class="pedido-nota">El pedido se mantiene mientras esta página siga abierta. Recargar o importar otro inventario reinicia el pedido.</p>
+        <p class="pedido-nota">El pedido y los reportes se mantienen mientras esta página siga abierta. Recargar o importar otro inventario reinicia el pedido y los datos de actividad.</p>
     }
 </div>
 @code {
@@ -286,7 +346,7 @@
     private FiltrosPedido filtros = new();
     private FiltrosPedido opciones = new();
 
-    private static string Numero(decimal valor) => valor.ToString("0.##", CultureInfo.CurrentCulture);
+    private static string Numero(decimal valor) => valor.ToString("0.############################", CultureInfo.CurrentCulture);
 
     private string TituloVista => vista switch
     {
@@ -294,15 +354,17 @@
         "Catálogo" => "Todo el inventario",
         "Omitidos" => "Omitidos por ahora",
         "No sugerir" => "Productos que no se venden",
+        "Sin movimiento" => "Sin movimiento en B4",
         _ => "Mi pedido"
     };
 
     private string AyudaVista => vista switch
     {
         "Oportunidades" => "Escribe cuánto necesitas y pulsa Agregar. Matriz y Ebenezer muestran lo que puedes pedir.",
-        "Mi pedido" => "Revisa tus cantidades y elige de qué bodega pedir cada producto.",
+        "Mi pedido" => "Revisa cantidades, origen y comentarios. El Excel incluye todo tu pedido y queda listo para adjuntar al correo.",
         "Omitidos" => "Los apartaste solo para este pedido. Puedes recuperarlos aquí.",
         "No sugerir" => "No aparecerán en próximos pedidos. Usa Volver a revisar si quieres recuperarlos.",
+        "Sin movimiento" => "Tienen stock y superan el plazo elegido. Puedes agregarlos o elegir Incluir esta vez. No significa necesariamente que no se vendan.",
         _ => "Aquí también aparecen productos sin disponibilidad y los que apartaste."
     };
 
@@ -311,10 +373,39 @@
         "Mi pedido" => "Aún no hay productos que coincidan. Agrega productos desde Por revisar.",
         "Omitidos" => "No hay productos omitidos que coincidan con tu búsqueda.",
         "No sugerir" => "No hay productos excluidos que coincidan con tu búsqueda.",
+        "Sin movimiento" => "No hay productos con stock sin movimiento para el plazo y la búsqueda elegidos.",
         _ => "No hay productos para mostrar. Revisa la búsqueda, las opciones o las otras listas."
     };
 
     private string vista = "Oportunidades";
+    private bool exportando;
+
+    private async Task ExportarPedido()
+    {
+        if (exportando) return;
+        exportando = true;
+        mensaje = null;
+        try
+        {
+            using var archivo = new MemoryStream(PedidoExportacionService.Crear(Pedido.Items, Inventario.Productos, Configuracion.Actual));
+            using var referencia = new DotNetStreamReference(archivo);
+            await using var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/descargarPedido.js");
+            await modulo.InvokeVoidAsync("descargarPedido", $"Pedido_B4_{DateTime.Now:yyyy-MM-dd_HHmm}.xlsx", referencia);
+            mensaje = "Descarga iniciada. Adjunta el Excel a tu correo cuando termine de descargarse.";
+            esError = false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            mensaje = ex.Message;
+            esError = true;
+        }
+        catch (Exception)
+        {
+            mensaje = "No se pudo descargar el Excel. Tu pedido sigue aquí; intenta descargarlo de nuevo.";
+            esError = true;
+        }
+        finally { exportando = false; }
+    }
     private string busqueda = "";
     private string marcaSeleccionada = "";
     private string grupoSeleccionado = "";
@@ -414,6 +505,7 @@
     {
         return !Pedido.Contiene(producto.Codigo)
             && !Pedido.Omitidos.Contains(producto.Codigo)
+            && !(filtros.ApartarSinMovimiento && Actividad.DebeApartar(producto, filtros.DiasSinMovimiento))
             && ReglasAbastecimiento.EsOportunidad(producto, Configuracion.Actual, filtros);
     }
 
@@ -452,6 +544,10 @@
         else if (vista == "No sugerir")
         {
             consulta = consulta.Where(p => Configuracion.Actual.ProductosNoSugerir.Contains(p.Codigo));
+        }
+        else if (vista == "Sin movimiento")
+        {
+            consulta = consulta.Where(p => Actividad.DebeApartar(p, filtros.DiasSinMovimiento));
         }
 
         if (!string.IsNullOrWhiteSpace(busqueda))
@@ -552,10 +648,11 @@
         if (actuales.ReservaCentro < 0 ||
             actuales.MinimoTransferible <= 0 ||
             actuales.CantidadInicial <= 0 ||
-            actuales.StockMaximoB4 < 0)
+            actuales.StockMaximoB4 < 0 ||
+            !new[] { 30, 90, 180, 365 }.Contains(actuales.DiasSinMovimiento))
         {
             esError = true;
-            mensaje = "La cantidad inicial y el mínimo para mostrar deben ser mayores que cero. Las unidades que dejas en cada bodega pueden ser cero, pero no negativas.";
+            mensaje = "La cantidad inicial y el mínimo deben ser mayores que cero; la reserva no puede ser negativa. El plazo sin movimiento debe ser 30, 90, 180 o 365 días.";
             return false;
         }
 
@@ -630,12 +727,6 @@
         }
     }
 
-    private void SeleccionarTodos(
-        IEnumerable<ProductoInventario> productos)
-    {
-        SeleccionarPagina(productos);
-    }
-
     private void LimpiarSeleccion()
     {
         seleccionados.Clear();
@@ -654,6 +745,7 @@
 
         if (agregado)
         {
+            Actividad.Incluir(producto.Codigo);
             Pedido.Omitidos.Remove(producto.Codigo);
             seleccionados.Remove(producto.Codigo);
         }
@@ -684,7 +776,10 @@
         }
 
         foreach (var producto in productos.Where(p => Pedido.Contiene(p.Codigo)))
+        {
             Pedido.Omitidos.Remove(producto.Codigo);
+            Actividad.Incluir(producto.Codigo);
+        }
 
         seleccionados.Clear();
 
@@ -695,16 +790,6 @@
     private async Task ExcluirUno(ProductoInventario producto)
     {
         await ExcluirProductos(new[] { producto.Codigo });
-    }
-
-    private async Task ExcluirMarcados()
-    {
-        var codigos = ObtenerFiltrados()
-            .Where(p => seleccionados.Contains(p.Codigo))
-            .Select(p => p.Codigo)
-            .ToList();
-
-        await ExcluirProductos(codigos);
     }
 
     private async Task ExcluirProductos(
@@ -730,7 +815,7 @@
             pagina = 1;
 
             esError = false;
-            mensaje = $"{lista.Count} productos marcados como No sugerir.";
+            mensaje = "Producto apartado porque no se vende. Puedes recuperarlo en Otras listas → No se venden.";
         }
         catch (Exception ex)
         {
@@ -896,17 +981,46 @@
         vista = "No sugerir";
     }
 
+    private void MostrarSinMovimiento()
+    {
+        MostrarMiPedido();
+        vista = "Sin movimiento";
+    }
+
+    private void CambiarFiltroActividad(ChangeEventArgs e)
+    {
+        filtros.ApartarSinMovimiento = e.Value is true;
+        opciones.ApartarSinMovimiento = filtros.ApartarSinMovimiento;
+        pagina = 1;
+        seleccionados.Clear();
+        mensaje = null;
+    }
+
+    private void CambiarDiasActividad(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int dias) && new[] { 30, 90, 180, 365 }.Contains(dias))
+        {
+            filtros.DiasSinMovimiento = dias;
+            opciones.DiasSinMovimiento = dias;
+            pagina = 1;
+            seleccionados.Clear();
+            mensaje = null;
+        }
+    }
+
+    private void RecuperarActividad(string codigo)
+    {
+        Actividad.Incluir(codigo);
+        seleccionados.Remove(codigo);
+        esError = false;
+        mensaje = "Incluido para esta revisión. Aparecerá en Por revisar si cumple los demás filtros y no está en No se venden.";
+    }
+
     private void Omitir(string codigo)
     {
         Pedido.Omitidos.Add(codigo);
         seleccionados.Remove(codigo);
         mensaje = null;
-    }
-
-    private void OmitirMarcados()
-    {
-        foreach (var producto in ObtenerFiltrados().Where(p => seleccionados.Contains(p.Codigo)).ToList())
-            Omitir(producto.Codigo);
     }
 
     private void RecuperarOmitido(string codigo)

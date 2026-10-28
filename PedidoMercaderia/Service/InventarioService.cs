@@ -7,6 +7,7 @@ namespace PedidoMercaderia.Services
     {
         private readonly ExcelImportacionService _excelService;
         private readonly PedidoService _pedidoService;
+        private readonly ActividadService _actividadService;
 
         public ResultadoImportacion? ResultadoActual { get; private set; }
 
@@ -25,10 +26,12 @@ namespace PedidoMercaderia.Services
 
         public InventarioService(
             ExcelImportacionService excelService,
-            PedidoService pedidoService)
+            PedidoService pedidoService,
+            ActividadService actividadService)
         {
             _excelService = excelService;
             _pedidoService = pedidoService;
+            _actividadService = actividadService;
         }
 
         public void Importar(Stream archivo, string nombreArchivo)
@@ -40,12 +43,14 @@ namespace PedidoMercaderia.Services
 
             // Un nuevo inventario inicia un nuevo borrador.
             _pedidoService.Limpiar();
+            _actividadService.Limpiar();
         }
 
         public void Limpiar()
         {
             ResultadoActual = null;
             _pedidoService.Limpiar();
+            _actividadService.Limpiar();
         }
     }
 }

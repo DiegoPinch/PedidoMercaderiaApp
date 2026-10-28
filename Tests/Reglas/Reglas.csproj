@@ -8,10 +8,16 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="ExcelDataReader" Version="3.9.0" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <Compile Include="../../PedidoMercaderia/Service/PedidoExportacionService.cs" Link="PedidoExportacionService.cs" />
     <Compile Include="../../PedidoMercaderia/Models/*.cs" Link="Models/%(Filename)%(Extension)" />
     <Compile Include="../../PedidoMercaderia/Service/ReglasAbastecimiento.cs" Link="ReglasAbastecimiento.cs" />
     <Compile Include="../../PedidoMercaderia/Service/PedidoService.cs" Link="PedidoService.cs" />
     <Compile Include="../../PedidoMercaderia/Service/ConfiguracionService.cs" Link="ConfiguracionService.cs" />
+    <Compile Include="../../PedidoMercaderia/Service/ActividadService.cs" Link="ActividadService.cs" />
+    <Compile Include="../../PedidoMercaderia/Service/ExcelImportacionService.cs" Link="ExcelImportacionService.cs" />
+    <Compile Include="../../PedidoMercaderia/Service/InventarioService.cs" Link="InventarioService.cs" />
     <RazorComponent Include="../../PedidoMercaderia/Pages/RevisarPedido.razor" Link="Components/RevisarPedido.razor" />
   </ItemGroup>
 </Project>

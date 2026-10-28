@@ -31,6 +31,7 @@ namespace PedidoMercaderia
 
             // Procesamiento de archivos Excel
             builder.Services.AddSingleton<ExcelImportacionService>();
+            builder.Services.AddSingleton<ActividadService>();
 
             // Administración del pedido
             builder.Services.AddSingleton<PedidoService>();

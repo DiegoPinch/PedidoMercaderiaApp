@@ -7,6 +7,7 @@
 
 @inject InventarioService Inventario
 @inject ConfiguracionService Configuracion
+@inject ActividadService Actividad
 
 <PageTitle>Importar inventario</PageTitle>
 
@@ -29,7 +30,7 @@
             <InputFile class="form-control"
                        accept=".xls,.xlsx"
                        OnChange="ImportarArchivo"
-                       disabled="@procesando" />
+                       disabled="@(procesando || procesandoActividad)" />
 
             <small class="text-muted d-block mt-2">
                 Excel .xls o .xlsx — Máximo 20 MB.
@@ -58,6 +59,45 @@
 
     @if (Inventario.ResultadoActual is ResultadoImportacion resultado)
     {
+        <section class="card shadow-sm mb-4" aria-label="Reporte opcional de movimientos de B4">
+            <div class="card-body p-4">
+                <h5>Reducir la revisión con movimientos de B4 <span class="text-muted small">Opcional</span></h5>
+                <p class="text-muted">Carga el reporte de tu sucursal para apartar productos que tienes y llevan mucho tiempo sin actividad.
+                    Incluye ventas y transferencias; los apartados siempre se pueden recuperar.</p>
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label" for="fechaActividad">Fecha de corte del reporte</label>
+                        <input id="fechaActividad" type="date" class="form-control" @bind="fechaActividad"
+                               max="@DateTime.Today.ToString("yyyy-MM-dd")" disabled="@(procesandoActividad || procesando)" />
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label" for="archivoActividad">Excel de movimientos de B4</label>
+                        <InputFile id="archivoActividad" class="form-control" accept=".xls,.xlsx" OnChange="ImportarActividad"
+                                   disabled="@(procesandoActividad || procesando)" />
+                    </div>
+                </div>
+                <small class="text-muted d-block mt-2">Selecciona la fecha en que se calcularon los días sin actividad. Este reporte no cambia tu pedido.
+                    Al cargar otro inventario de bodegas tendrás que cargarlo nuevamente.</small>
+                @if (procesandoActividad) { <p class="mt-3 mb-0" role="status">Leyendo movimientos de B4…</p> }
+                @if (!string.IsNullOrWhiteSpace(errorActividad))
+                { <div class="alert alert-danger mt-3" role="alert">@errorActividad</div> }
+                @if (Actividad.Actual is ReporteActividad reporte)
+                {
+                    <div class="alert alert-success mt-3 mb-2" role="status">
+                        <strong>@reporte.NombreArchivo</strong> · Corte: @reporte.FechaReporte.ToString("dd/MM/yyyy")<br />
+                        @reporte.Coincidencias productos coinciden con el inventario.
+                        @(Inventario.Productos.Count - reporte.Coincidencias) no tienen información de actividad y seguirán en la revisión.
+                    </div>
+                    @if (reporte.FilasOmitidas > 0)
+                    { <p class="small text-muted">@reporte.FilasOmitidas filas omitidas por datos inválidos o códigos repetidos. Esos datos no se usarán para apartar productos.</p> }
+                    @if (reporte.Productos.Count > reporte.Coincidencias)
+                    { <p class="small text-muted">@(reporte.Productos.Count - reporte.Coincidencias) códigos del reporte no aparecen en el inventario cargado.</p> }
+                    <a href="pedido" class="btn btn-primary btn-sm">Revisar productos</a>
+                    <button class="btn btn-link btn-sm" @onclick="QuitarActividad">Quitar reporte de movimientos</button>
+                }
+            </div>
+        </section>
+
         <div class="card shadow-sm mb-4">
             <div class="card-body">
 
@@ -275,6 +315,9 @@
     private const long LimiteArchivo = 20L * 1024 * 1024;
 
     private bool procesando;
+    private bool procesandoActividad;
+    private string? errorActividad;
+    private DateTime fechaActividad = DateTime.Today;
     private string? error;
 
     private TimeSpan tiempoTotal;
@@ -283,6 +326,47 @@
     protected override async Task OnInitializedAsync()
     {
         await Configuracion.CargarAsync();
+        if (Actividad.Actual is not null)
+            fechaActividad = Actividad.Actual.FechaReporte.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private async Task ImportarActividad(InputFileChangeEventArgs e)
+    {
+        errorActividad = null;
+        var archivo = e.File;
+        if (!(archivo.Name.EndsWith(".xls", StringComparison.OrdinalIgnoreCase)
+            || archivo.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            || archivo.Size == 0 || archivo.Size > LimiteArchivo)
+        {
+            errorActividad = "Selecciona un Excel .xls o .xlsx de hasta 20 MB.";
+            return;
+        }
+        if (fechaActividad.Date > DateTime.Today || fechaActividad.Year < 1900)
+        {
+            errorActividad = "Selecciona una fecha de corte válida, que no sea futura.";
+            return;
+        }
+        procesandoActividad = true;
+        try
+        {
+            await Task.Yield();
+            await using var flujo = archivo.OpenReadStream(LimiteArchivo);
+            using var memoria = new MemoryStream();
+            await flujo.CopyToAsync(memoria);
+            Actividad.Importar(memoria, archivo.Name, DateOnly.FromDateTime(fechaActividad), Inventario.Productos);
+        }
+        catch (Exception)
+        {
+            errorActividad = "No se pudo cargar el reporte. Comprueba que sea el Excel de B4 con COD_ITEM, STOCK y DIAS_SIN_ACTIVIDAD, " +
+                "y que sus códigos coincidan con el inventario. Se conserva el reporte anterior, si lo había.";
+        }
+        finally { procesandoActividad = false; }
+    }
+
+    private void QuitarActividad()
+    {
+        Actividad.Limpiar();
+        errorActividad = null;
     }
 
     private async Task ImportarArchivo(InputFileChangeEventArgs e)
