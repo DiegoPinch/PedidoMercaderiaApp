@@ -1,48 +1,22 @@
-﻿
-using System.Text.Json;
-using Microsoft.JSInterop;
+
 using PedidoMercaderia.Models;
 
 namespace PedidoMercaderia.Services
 {
     public class ConfiguracionService
     {
-        private const string ClaveAlmacenamiento =
-            "PedidoMercaderia.Configuracion.v1";
-
-        private readonly IJSRuntime _jsRuntime;
-        private bool _configuracionCargada;
-
         public ConfiguracionBodegas Actual { get; private set; } = new();
-
-        public IReadOnlyList<string> BodegasDisponibles { get; } =
-            Enumerable.Range(1, 45)
-                .Select(n => $"B{n}")
-                .ToList();
-
-        public IReadOnlyList<string> CentrosDistribucion { get; } =
-            new List<string>
-            {
-                "B1",
-                "B40"
-            };
-
-        public ConfiguracionService(IJSRuntime jsRuntime)
+        public Func<ConfiguracionBodegas, Task>? GuardarCompartido { get; set; }
+        public void Restaurar(ConfiguracionBodegas configuracion)
         {
-            _jsRuntime = jsRuntime;
+            Actual = configuracion;
+            Actual.ProductosNoSugerir = new(Actual.ProductosNoSugerir, StringComparer.OrdinalIgnoreCase);
         }
 
-        public string ObtenerNombreBodega(string? codigo)
-        {
-            return codigo?.ToUpperInvariant() switch
-            {
-                "B4" => "Mi sucursal",
-                "B1" => "Matriz",
-                "B39" => "Bame",
-                "B40" => "Ebenezer",
-                _ => "Bodega sin identificar"
-            };
-        }
+        public IReadOnlyList<string> BodegasDisponibles => Actual.NombresBodegas.Keys.OrderBy(b => b.Length).ThenBy(b => b).ToList();
+        public IReadOnlyList<string> CentrosDistribucion => Actual.OrigenesHabilitados.ToList();
+
+        public string ObtenerNombreBodega(string? codigo) => codigo is null ? "Sin seleccionar" : Actual.Nombre(codigo);
 
         public string ObtenerEtiquetaBodega(string? codigo)
         {
@@ -52,75 +26,11 @@ namespace PedidoMercaderia.Services
             return $"{codigo} - {ObtenerNombreBodega(codigo)}";
         }
 
-        public async Task CargarAsync()
-        {
-            if (_configuracionCargada)
-                return;
-
-            string? json = await _jsRuntime.InvokeAsync<string?>(
-                "localStorage.getItem",
-                ClaveAlmacenamiento);
-
-            if (!string.IsNullOrWhiteSpace(json))
-            {
-                try
-                {
-                    var guardada =
-                        JsonSerializer.Deserialize<ConfiguracionBodegas>(
-                            json);
-
-                    if (guardada is not null)
-                    {
-                        var origenes = new HashSet<string>(
-                            guardada.BodegasOrigen?
-                                .Where(b => CentrosDistribucion.Contains(
-                                    b, StringComparer.OrdinalIgnoreCase))
-                            ?? Enumerable.Empty<string>(),
-                            StringComparer.OrdinalIgnoreCase);
-
-                        if (origenes.Count == 0)
-                        {
-                            origenes = new HashSet<string>(
-                                CentrosDistribucion,
-                                StringComparer.OrdinalIgnoreCase);
-                        }
-
-                        Actual = new ConfiguracionBodegas
-                        {
-                            BodegaLocal = "B4",
-
-                            BodegasOrigen = origenes,
-
-                            ProductosNoSugerir = new HashSet<string>(
-                                guardada.ProductosNoSugerir
-                                    ?? new HashSet<string>(),
-                                StringComparer.OrdinalIgnoreCase)
-                        };
-                    }
-                }
-                catch (JsonException)
-                {
-                    Actual = new ConfiguracionBodegas();
-                }
-            }
-
-            _configuracionCargada = true;
-        }
-
         public string? Validar()
         {
-            if (Actual.BodegaLocal != "B4")
-                return "La bodega local debe ser B4.";
-
-            if (Actual.BodegasOrigen.Count == 0)
-                return "Selecciona al menos un centro de distribución.";
-
-            if (Actual.BodegasOrigen.Any(
-                b => !ConfiguracionBodegas.EsOrigenAutorizado(b)))
-            {
-                return "Existe un centro no autorizado.";
-            }
-
+            if (string.IsNullOrWhiteSpace(Actual.BodegaLocal)) return "Selecciona tu sucursal.";
+            if (!Actual.OrigenesHabilitados.Any()) return "Selecciona al menos un centro de distribución.";
+            if (Actual.BodegasOrigen.Contains(Actual.BodegaLocal)) return "Tu sucursal no puede ser su propio centro.";
             return null;
         }
 
@@ -133,12 +43,8 @@ namespace PedidoMercaderia.Services
             if (error is not null)
                 throw new InvalidOperationException(error);
 
-            string json = JsonSerializer.Serialize(Actual);
-
-            await _jsRuntime.InvokeVoidAsync(
-                "localStorage.setItem",
-                ClaveAlmacenamiento,
-                json);
+            if (GuardarCompartido is null) throw new InvalidOperationException("Conecta con el servidor para guardar la selección.");
+            await GuardarCompartido(Actual);
         }
     }
 }

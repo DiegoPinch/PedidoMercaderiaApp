@@ -1,372 +1,94 @@
-﻿
+@page "/"
 @page "/importar"
-@using System.Diagnostics
+@page "/configuracion"
 @using Microsoft.AspNetCore.Components.Forms
 @using PedidoMercaderia.Models
 @using PedidoMercaderia.Services
-
+@using PedidoMercaderia.Components
 @inject InventarioService Inventario
 @inject ConfiguracionService Configuracion
-@inject ActividadService Actividad
+@inject TrabajoService Trabajo
 
-<PageTitle>Importar inventario</PageTitle>
-
-<div class="container-fluid py-4">
-
-    <h2 class="fw-bold mb-2">
-        Importar inventario
-    </h2>
-
-    <p class="text-muted mb-4">
-        Selecciona el archivo exportado del sistema.
-        El inventario se procesará automáticamente.
-    </p>
-
-    <div class="card shadow-sm mb-4">
-        <div class="card-body p-4">
-
-            <h5 class="mb-3">Archivo de inventario</h5>
-
-            <InputFile class="form-control"
-                       accept=".xls,.xlsx"
-                       OnChange="ImportarArchivo"
-                       disabled="@(procesando || procesandoActividad)" />
-
-            <small class="text-muted d-block mt-2">
-                Excel .xls o .xlsx — Máximo 20 MB.
-                Una importación correcta reemplaza el inventario y reinicia el pedido.
-                Si el archivo falla, se conserva tu trabajo anterior.
-            </small>
-
-            @if (procesando)
-            {
-                <div class="mt-3">
-                    <div class="spinner-border spinner-border-sm
-                                text-primary me-2"></div>
-                    <span>Analizando productos...</span>
-                </div>
-            }
-
-            @if (!string.IsNullOrWhiteSpace(error))
-            {
-                <div class="alert alert-danger mt-3">
-                    @error
-                </div>
-            }
-
-        </div>
+<PageTitle>Inventario</PageTitle>
+<div class="module-page inventario-page">
+    <header class="module-header">
+    <div><span class="module-eyebrow">EXISTENCIAS</span>
+    <h1 class="h3">@(Trabajo.Estado.Inventario is null ? "Carga tu inventario" : "Inventario")</h1>
+    @if (Trabajo.Estado.Inventario is null)
+    { <p class="text-muted">Sube el Excel del sistema para comenzar.</p> }
+    else { <p>Consulta tus productos y mantén sus existencias al día.</p> }
     </div>
-
-    @if (Inventario.ResultadoActual is ResultadoImportacion resultado)
+    @if (Trabajo.Estado.Inventario is { } actual) { <span class="module-badge">@actual.TotalProductos.ToString("N0") productos</span> }
+    </header>
+    <section class="ui-card inventory-upload" aria-label="Cargar Excel">
+        @if (Trabajo.Estado.PedidoAbierto)
+        {
+            <div class="inventory-open">
+            <div class="ui-notice"><strong>Tu pedido está en preparación</strong><p class="small mb-0">Guárdalo y ciérralo antes de cargar otro Excel.</p></div>
+            <a class="btn btn-primary btn-sm mb-2" href="pedido?lista=mi-pedido">Continuar pedido</a>
+            </div>
+            <details><summary class="small">Anular esta preparación</summary>
+                <p class="small mt-2">El borrador se conservará para revisar con el siguiente Excel.</p>
+                <button class="btn btn-outline-danger btn-sm" disabled="@procesando" @onclick="AnularPreparacion">Anular y permitir otro Excel</button>
+            </details>
+        }
+        @if (!Trabajo.Estado.PedidoAbierto)
+        {
+        <fieldset class="mt-3" disabled="@(procesando || Trabajo.Estado.PedidoAbierto)">
+            <div class="row g-3 align-items-end">
+                <div class="col-sm-4"><label class="form-label" for="fechaInventario">Fecha del inventario</label>
+                    <input id="fechaInventario" type="date" class="form-control" @bind="fechaInventario" max="@DateTime.Today.ToString("yyyy-MM-dd")" /></div>
+                <div class="col-sm-8"><label class="form-label" for="archivoInventario">@(Trabajo.Estado.Inventario is null ? "Archivo Excel" : "Actualizar con otro Excel")</label>
+                    <InputFile id="archivoInventario" class="form-control" accept=".xls,.xlsx" OnChange="ImportarArchivo" /></div>
+            </div>
+            <small class="text-muted">.xls o .xlsx · Hasta 20 MB</small>
+        </fieldset>
+        }
+        @if (procesando) { <p class="mt-2 mb-0" role="status">Guardando inventario…</p> }
+        @if (error is not null) { <div class="alert alert-danger mt-2" role="alert">@error</div> }
+    </section>
+    @if (Trabajo.Estado.Inventario is ResultadoImportacion resultado)
     {
-        <section class="card shadow-sm mb-4" aria-label="Reporte opcional de movimientos de B4">
-            <div class="card-body p-4">
-                <h5>Reducir la revisión con movimientos de B4 <span class="text-muted small">Opcional</span></h5>
-                <p class="text-muted">Carga el reporte de tu sucursal para apartar productos que tienes y llevan mucho tiempo sin actividad.
-                    Incluye ventas y transferencias; los apartados siempre se pueden recuperar.</p>
-                <div class="row g-3 align-items-end">
-                    <div class="col-md-4">
-                        <label class="form-label" for="fechaActividad">Fecha de corte del reporte</label>
-                        <input id="fechaActividad" type="date" class="form-control" @bind="fechaActividad"
-                               max="@DateTime.Today.ToString("yyyy-MM-dd")" disabled="@(procesandoActividad || procesando)" />
-                    </div>
-                    <div class="col-md-8">
-                        <label class="form-label" for="archivoActividad">Excel de movimientos de B4</label>
-                        <InputFile id="archivoActividad" class="form-control" accept=".xls,.xlsx" OnChange="ImportarActividad"
-                                   disabled="@(procesandoActividad || procesando)" />
-                    </div>
-                </div>
-                <small class="text-muted d-block mt-2">Selecciona la fecha en que se calcularon los días sin actividad. Este reporte no cambia tu pedido.
-                    Al cargar otro inventario de bodegas tendrás que cargarlo nuevamente.</small>
-                @if (procesandoActividad) { <p class="mt-3 mb-0" role="status">Leyendo movimientos de B4…</p> }
-                @if (!string.IsNullOrWhiteSpace(errorActividad))
-                { <div class="alert alert-danger mt-3" role="alert">@errorActividad</div> }
-                @if (Actividad.Actual is ReporteActividad reporte)
-                {
-                    <div class="alert alert-success mt-3 mb-2" role="status">
-                        <strong>@reporte.NombreArchivo</strong> · Corte: @reporte.FechaReporte.ToString("dd/MM/yyyy")<br />
-                        @reporte.Coincidencias productos coinciden con el inventario.
-                        @(Inventario.Productos.Count - reporte.Coincidencias) no tienen información de actividad y seguirán en la revisión.
-                    </div>
-                    @if (reporte.FilasOmitidas > 0)
-                    { <p class="small text-muted">@reporte.FilasOmitidas filas omitidas por datos inválidos o códigos repetidos. Esos datos no se usarán para apartar productos.</p> }
-                    @if (reporte.Productos.Count > reporte.Coincidencias)
-                    { <p class="small text-muted">@(reporte.Productos.Count - reporte.Coincidencias) códigos del reporte no aparecen en el inventario cargado.</p> }
-                    <a href="pedido" class="btn btn-primary btn-sm">Revisar productos</a>
-                    <button class="btn btn-link btn-sm" @onclick="QuitarActividad">Quitar reporte de movimientos</button>
-                }
+        <p class="small text-muted">@resultado.NombreArchivo · @resultado.TotalProductos productos · @resultado.BodegasDetectadas.Count bodegas
+            @if (Configuracion.EstaConfigurado) { <span> · @Configuracion.ObtenerEtiquetaBodega(Configuracion.Actual.BodegaLocal)</span> }
+        </p>
+        @if (Configuracion.EstaConfigurado)
+        {
+            @if (!Trabajo.Estado.PedidoAbierto)
+            {
+            <div class="d-flex flex-wrap align-items-center gap-3 my-3">
+                <a class="btn btn-primary" href="pedido">Preparar pedido</a>
             </div>
-        </section>
-
-        <div class="card shadow-sm mb-4">
-            <div class="card-body">
-
-                <div class="d-flex justify-content-between
-                            align-items-center flex-wrap gap-2">
-
-                    <div>
-                        <h5 class="mb-1">
-                            Inventario cargado
-                        </h5>
-
-                        <small class="text-muted">
-                            @resultado.NombreArchivo
-                        </small>
-                    </div>
-
-                    <span class="badge bg-success p-2">
-                        Lectura completada
-                    </span>
-
-                </div>
-
-            </div>
-        </div>
-
-        <div class="row g-3 mb-4">
-
-            <div class="col-6 col-lg-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body">
-
-                        <small class="text-muted">
-                            Productos
-                        </small>
-
-                        <h3 class="fw-bold mt-2">
-                            @resultado.TotalProductos
-                        </h3>
-
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-6 col-lg-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body">
-
-                        <small class="text-muted">
-                            Marcas
-                        </small>
-
-                        <h3 class="fw-bold mt-2">
-                            @resultado.TotalMarcas
-                        </h3>
-
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-6 col-lg-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body">
-
-                        <small class="text-muted">
-                            Bodegas
-                        </small>
-
-                        <h3 class="fw-bold mt-2">
-                            @resultado.BodegasDetectadas.Count
-                        </h3>
-
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-6 col-lg-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-body">
-
-                        <small class="text-muted">
-                            Tiempo total
-                        </small>
-
-                        <h3 class="fw-bold mt-2">
-                            @($"{tiempoTotal.TotalSeconds:F2} s")
-                        </h3>
-
-                    </div>
-                </div>
-            </div>
-
-        </div>
-
-        <div class="card shadow-sm mb-4">
-            <div class="card-body">
-
-                <h5 class="mb-3">
-                    Información de importación
-                </h5>
-
-                <p>
-                    <strong>Mi bodega:</strong>
-                    @(string.IsNullOrWhiteSpace(
-                        Configuracion.Actual.BodegaLocal)
-                        ? "Sin configurar"
-                        : Configuracion.Actual.BodegaLocal)
-                </p>
-
-                <p>
-                    <strong>Bodegas de distribución:</strong>
-                    @string.Join(", ",
-                        Configuracion.Actual.BodegasOrigen
-                            .OrderBy(x => int.Parse(x[1..])))
-                </p>
-
-                <p class="mb-0">
-                    <strong>Tiempo de análisis:</strong>
-                    @($"{tiempoAnalisis.TotalSeconds:F2} s")
-                </p>
-
-            </div>
-        </div>
-
-        <div class="card shadow-sm mb-4">
-
-            <div class="card-header bg-white py-3">
-                <h5 class="mb-1">Vista previa</h5>
-
-                <small class="text-muted">
-                    Primeros 30 productos del inventario.
-                </small>
-            </div>
-
-            <div class="card-body p-0">
-                <div class="table-responsive">
-
-                    <table class="table table-hover
-                                  table-striped mb-0">
-
-                        <thead class="table-light">
-                            <tr>
-                                <th>Código</th>
-                                <th>Descripción</th>
-                                <th>Marca</th>
-                                <th>Mi stock</th>
-                                <th>Stock origen</th>
-                                <th>Total</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            @foreach (var producto in
-                                Inventario.Productos.Take(30))
-                            {
-                                <tr @key="producto.Codigo">
-
-                                    <td>
-                                        <strong>
-                                            @producto.Codigo
-                                        </strong>
-                                    </td>
-
-                                    <td>
-                                        @producto.Descripcion
-                                    </td>
-
-                                    <td>
-                                        @producto.Marca
-                                    </td>
-
-                                    <td>
-                                        @producto.ObtenerStock(
-                                            Configuracion.Actual.BodegaLocal)
-                                    </td>
-
-                                    <td>
-                                        @producto.ObtenerStockOrigen(
-                                            Configuracion.Actual.BodegasOrigen)
-                                    </td>
-
-                                    <td>
-                                        @producto.TotalReportado
-                                    </td>
-
-                                </tr>
-                            }
-                        </tbody>
-
-                    </table>
-
-                </div>
-            </div>
-        </div>
-
-        <details class="mb-4">
-            <summary class="text-muted"
-                     style="cursor:pointer">
-                Detalles técnicos de importación
-            </summary>
-
-            <div class="card card-body mt-2">
-                <p>Filas procesadas: @resultado.FilasLeidas</p>
-                <p>Filas omitidas: @resultado.FilasOmitidas</p>
-                <p class="mb-0">
-                    Diferencias de totales:
-                    @resultado.DiferenciasTotales
-                </p>
-            </div>
-        </details>
+            }
+            <details class="border rounded p-3 mb-3"><summary>Cambiar sucursal, centros o nombres</summary><div class="mt-3"><AjustesBodegas /></div></details>
+        }
+        else if (Trabajo.Usuario?.Rol == "Administrador")
+        { <section class="border rounded p-3 mb-3"><AjustesBodegas /></section> }
+        else { <p>El administrador debe elegir la sucursal y los centros para empezar.</p> }
+        <TablaInventario Inventario="resultado" />
+        @if (resultado.FilasOmitidas > 0 || resultado.Advertencias.Count > 0 || resultado.DiferenciasTotales > 0)
+        {
+            <details class="border rounded p-3"><summary>Observaciones del archivo</summary>
+                <p class="small mt-2">@resultado.FilasOmitidas filas omitidas · @resultado.DiferenciasTotales diferencias de totales</p>
+                @foreach (var aviso in resultado.Advertencias) { <p class="small">@aviso</p> }
+            </details>
+        }
     }
-
 </div>
-
 @code {
     private const long LimiteArchivo = 20L * 1024 * 1024;
 
     private bool procesando;
-    private bool procesandoActividad;
-    private string? errorActividad;
-    private DateTime fechaActividad = DateTime.Today;
+    private DateTime fechaInventario = DateTime.Today;
     private string? error;
 
-    private TimeSpan tiempoTotal;
-    private TimeSpan tiempoAnalisis;
 
-    protected override async Task OnInitializedAsync()
+    private async Task AnularPreparacion()
     {
-        await Configuracion.CargarAsync();
-        if (Actividad.Actual is not null)
-            fechaActividad = Actividad.Actual.FechaReporte.ToDateTime(TimeOnly.MinValue);
-    }
-
-    private async Task ImportarActividad(InputFileChangeEventArgs e)
-    {
-        errorActividad = null;
-        var archivo = e.File;
-        if (!(archivo.Name.EndsWith(".xls", StringComparison.OrdinalIgnoreCase)
-            || archivo.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-            || archivo.Size == 0 || archivo.Size > LimiteArchivo)
-        {
-            errorActividad = "Selecciona un Excel .xls o .xlsx de hasta 20 MB.";
-            return;
-        }
-        if (fechaActividad.Date > DateTime.Today || fechaActividad.Year < 1900)
-        {
-            errorActividad = "Selecciona una fecha de corte válida, que no sea futura.";
-            return;
-        }
-        procesandoActividad = true;
-        try
-        {
-            await Task.Yield();
-            await using var flujo = archivo.OpenReadStream(LimiteArchivo);
-            using var memoria = new MemoryStream();
-            await flujo.CopyToAsync(memoria);
-            Actividad.Importar(memoria, archivo.Name, DateOnly.FromDateTime(fechaActividad), Inventario.Productos);
-        }
-        catch (Exception)
-        {
-            errorActividad = "No se pudo cargar el reporte. Comprueba que sea el Excel de B4 con COD_ITEM, STOCK y DIAS_SIN_ACTIVIDAD, " +
-                "y que sus códigos coincidan con el inventario. Se conserva el reporte anterior, si lo había.";
-        }
-        finally { procesandoActividad = false; }
-    }
-
-    private void QuitarActividad()
-    {
-        Actividad.Limpiar();
-        errorActividad = null;
+        procesando = true; error = null;
+        try { await Trabajo.AnularPreparacion(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { procesando = false; }
     }
 
     private async Task ImportarArchivo(InputFileChangeEventArgs e)
@@ -396,12 +118,9 @@
 
         procesando = true;
 
-        tiempoTotal = TimeSpan.Zero;
-        tiempoAnalisis = TimeSpan.Zero;
 
         StateHasChanged();
 
-        var relojTotal = Stopwatch.StartNew();
 
         try
         {
@@ -415,13 +134,11 @@
             await flujo.CopyToAsync(memoria);
             memoria.Position = 0;
 
-            var relojAnalisis = Stopwatch.StartNew();
 
-            Inventario.Importar(memoria, archivo.Name);
+            var nuevoInventario = Inventario.Analizar(memoria, archivo.Name);
+            await Trabajo.Importar(nuevoInventario, DateOnly.FromDateTime(fechaInventario));
 
-            relojAnalisis.Stop();
 
-            tiempoAnalisis = relojAnalisis.Elapsed;
         }
         catch (Exception ex)
         {
@@ -429,9 +146,7 @@
         }
         finally
         {
-            relojTotal.Stop();
 
-            tiempoTotal = relojTotal.Elapsed;
 
             procesando = false;
         }

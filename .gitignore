@@ -1,16 +1,13 @@
-
-# Visual Studio
+**/bin/
+**/obj/
 .vs/
-bin/
-obj/
-
-# Publicación local
+Servidor/Datos/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.local.json
+.env
+.env.*
+artifacts/
 dist/
-publish/
-
-# Netlify CLI
-.netlify/
-
-# Archivos de usuario
-*.user
-*.suo
+**/*.csproj.user

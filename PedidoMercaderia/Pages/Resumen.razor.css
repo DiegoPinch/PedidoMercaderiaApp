@@ -1,0 +1,10 @@
+.resumen-filtros { display:flex; gap:.7rem; flex-wrap:wrap; }
+.resumen-filtros label { flex:1 1 130px; font-size:.85rem; }
+.resumen-tabla { max-height:52vh; overflow:auto; border:1px solid #dce3eb; border-radius:8px; }
+.resumen-tabla table { margin-bottom:0; font-size:.88rem; }
+.resumen-tabla thead { position:sticky; top:0; background:#f3f6fa; z-index:1; }
+.resumen-tabla th { background:#f3f6fa; white-space:nowrap; padding:.55rem; }
+.resumen-tabla td { padding:.5rem; }
+.resumen-tabla strong { color:#111; }
+.resumen-tabla small { display:block; font-size:.75rem; color:#333; max-width:380px; }
+.resumen-tabla .btn { white-space:nowrap; }

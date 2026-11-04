@@ -8,9 +8,13 @@ public static class ReglasAbastecimiento
         Math.Max(0, producto.ObtenerStock(bodega) - Math.Max(0, reserva));
 
     public static decimal MejorDisponible(ProductoInventario producto,
-        ConfiguracionBodegas configuracion, decimal reserva) =>
-        configuracion.OrigenesHabilitados.Select(b => Disponible(producto, b, reserva))
-            .DefaultIfEmpty(0).Max();
+        ConfiguracionBodegas configuracion, decimal reserva)
+    {
+        decimal mejor = 0;
+        foreach (var bodega in configuracion.OrigenesHabilitados)
+            mejor = Math.Max(mejor, Disponible(producto, bodega, reserva));
+        return mejor;
+    }
 
     public static decimal Participacion(ProductoInventario producto, ConfiguracionBodegas configuracion)
     {

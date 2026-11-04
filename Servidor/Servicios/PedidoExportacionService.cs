@@ -18,13 +18,26 @@ public static class PedidoExportacionService
         var catalogo = inventario.ToDictionary(p => p.Codigo, StringComparer.OrdinalIgnoreCase);
         foreach (var item in items)
         {
-            if (!catalogo.TryGetValue(item.CodigoProducto, out var producto)
+            if (item.RequiereRevision || !catalogo.TryGetValue(item.CodigoProducto, out var producto)
                 || !configuracion.OrigenesHabilitados.Contains(item.BodegaOrigen, StringComparer.OrdinalIgnoreCase)
                 || item.CantidadSolicitada <= 0 || item.ReservaCentro < 0
                 || item.CantidadSolicitada > ReglasAbastecimiento.Disponible(producto, item.BodegaOrigen, item.ReservaCentro))
                 throw new InvalidOperationException($"Revisa la cantidad y el origen de {item.CodigoProducto} antes de exportar.");
         }
 
+        return Escribir(items, catalogo, configuracion);
+    }
+
+    public static byte[] CrearHistorico(IEnumerable<ItemPedido> pedido, ConfiguracionBodegas? configuracion = null)
+    {
+        var items = pedido.OrderBy(i => i.BodegaOrigen).ThenBy(i => i.CodigoProducto).ToList();
+        if (items.Count == 0) throw new InvalidOperationException("El pedido histórico está vacío.");
+        return Escribir(items, items.ToDictionary(i => i.CodigoProducto,
+            i => new ProductoInventario { Codigo = i.CodigoProducto, Descripcion = i.DescripcionProducto }, StringComparer.OrdinalIgnoreCase), configuracion);
+    }
+
+    private static byte[] Escribir(List<ItemPedido> items, Dictionary<string, ProductoInventario> catalogo, ConfiguracionBodegas? configuracion)
+    {
         using var archivo = new MemoryStream();
         using (var documento = SpreadsheetDocument.Create(archivo, SpreadsheetDocumentType.Workbook))
         {
@@ -47,7 +60,7 @@ public static class PedidoExportacionService
                 var row = new Row { RowIndex = fila, Height = Math.Min(409, Math.Max(30, lineas * 15 + 10)), CustomHeight = true };
                 row.Append(Texto($"A{fila}", item.CodigoProducto, baseEstilo + 1),
                     Texto($"B{fila}", producto.Descripcion, baseEstilo),
-                    Texto($"C{fila}", item.BodegaOrigen.Equals("B1", StringComparison.OrdinalIgnoreCase) ? "B1 · Matriz" : "B40 · Ebenezer", baseEstilo),
+                    Texto($"C{fila}", configuracion is null ? item.BodegaOrigen : $"{item.BodegaOrigen} · {configuracion.Nombre(item.BodegaOrigen)}", baseEstilo),
                     new Cell { CellReference = $"D{fila}", DataType = CellValues.Number, StyleIndex = baseEstilo + 2,
                         CellValue = new CellValue(item.CantidadSolicitada.ToString(CultureInfo.InvariantCulture)) },
                     Texto($"E{fila}", comentario, baseEstilo));
@@ -67,10 +80,10 @@ public static class PedidoExportacionService
                 new PrintOptions { HorizontalCentered = true },
                 new PageMargins { Left = .3, Right = .3, Top = .4, Bottom = .4, Header = .2, Footer = .2 },
                 new PageSetup { Orientation = OrientationValues.Landscape, PaperSize = 9, FitToWidth = 1, FitToHeight = 0 });
-            libro.Workbook.Append(new Sheets(new Sheet { Name = "Pedido B4", SheetId = 1, Id = libro.GetIdOfPart(parte) }));
+            libro.Workbook.Append(new Sheets(new Sheet { Name = "Pedido", SheetId = 1, Id = libro.GetIdOfPart(parte) }));
             libro.Workbook.Append(new DefinedNames(
-                new DefinedName { Name = "_xlnm.Print_Titles", LocalSheetId = 0, Text = "'Pedido B4'!$1:$1" },
-                new DefinedName { Name = "_xlnm.Print_Area", LocalSheetId = 0, Text = $"'Pedido B4'!$A$1:$E${fila - 1}" }));
+                new DefinedName { Name = "_xlnm.Print_Titles", LocalSheetId = 0, Text = "'Pedido'!$1:$1" },
+                new DefinedName { Name = "_xlnm.Print_Area", LocalSheetId = 0, Text = $"'Pedido'!$A$1:$E${fila - 1}" }));
             libro.Workbook.Save();
         }
         return archivo.ToArray();

@@ -10,6 +10,8 @@ namespace PedidoMercaderia.Services
         private readonly ActividadService _actividadService;
 
         public ResultadoImportacion? ResultadoActual { get; private set; }
+        public void Restaurar(ResultadoImportacion? resultado) => ResultadoActual = resultado;
+        public ResultadoImportacion Analizar(Stream archivo, string nombre) => _excelService.Importar(archivo, nombre);
 
         public IReadOnlyList<ProductoInventario> Productos
         {

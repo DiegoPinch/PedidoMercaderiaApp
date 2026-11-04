@@ -20,10 +20,10 @@ ProductoInventario Producto(decimal local, decimal matriz, decimal ebenezer, dec
     }
 };
 
-var configuracion = new ConfiguracionBodegas();
+var configuracion = new ConfiguracionBodegas { BodegaLocal = "B4", BodegasOrigen = new(["B1", "B40"]) };
 var filtros = new FiltrosPedido();
 bool Candidato(ProductoInventario producto) => ReglasAbastecimiento.EsOportunidad(producto, configuracion, filtros);
-Verificar(configuracion.OrigenesHabilitados.ToHashSet().SetEquals(["B1", "B40"]), "Solo Matriz y Ebenezer son orígenes por defecto");
+Verificar(configuracion.OrigenesHabilitados.ToHashSet().SetEquals(["B1", "B40"]), "La configuración de prueba habilita Matriz y Ebenezer");
 Verificar(!Candidato(Producto(0, 0, 0, 1000)), "Stock solo en Bame no genera oportunidades");
 Verificar(Candidato(Producto(10, 100, 200, 1000)), "Cable con 10 en B4 y stock en los centros sí aparece");
 Verificar(Candidato(Producto(0, 2, 0, 0)), "Sin stock en B4 y total nacional menor que 20 sí aparece");
@@ -68,34 +68,36 @@ configuracion.BodegasOrigen.Remove("B40");
 pedido.ValidarBorrador([cable], configuracion);
 Verificar(pedido.TotalProductos == 0, "Quita el producto si ningún centro habilitado puede abastecerlo");
 configuracion.BodegasOrigen.Add("B39");
-Verificar(!pedido.Agregar(Producto(0, 0, 0, 1000), configuracion, 10, 0), "Incluso una configuración manipulada no permite pedir a Bame");
+Verificar(pedido.Agregar(Producto(0, 0, 0, 1000), configuracion, 10, 0), "Un centro seleccionado explícitamente puede abastecer");
 pedido.Omitidos.Add("CABLE-01");
 pedido.Limpiar();
 Verificar(pedido.Omitidos.Count == 0, "Un inventario nuevo reinicia los omitidos temporales");
 
-configuracion = new ConfiguracionBodegas();
+configuracion = new ConfiguracionBodegas { BodegaLocal = "B4", BodegasOrigen = new(["B1", "B40"]) };
 var decimalProducto = Producto(0, 1.5m, 0, 0);
 Verificar(pedido.Agregar(decimalProducto, configuracion, 0.5m, 1), "Permite cantidades fraccionarias");
 Verificar(pedido.TotalUnidades == 0.5m, "Conserva la precisión decimal");
 
-var js = new AlmacenamientoFalso("""
-    {"BodegaLocal":"B4","BodegasOrigen":["B1","B39","B40"],"ProductosNoSugerir":["cable-01"]}
-    """);
-var servicio = new ConfiguracionService(js);
-await servicio.CargarAsync();
-Verificar(servicio.Actual.BodegasOrigen.SetEquals(["B1", "B40"]), "Migra configuración antigua eliminando B39");
-Verificar(servicio.Actual.ProductosNoSugerir.Contains("CABLE-01"), "La migración conserva exclusiones sin distinguir mayúsculas");
+var servicio = new ConfiguracionService();
+Verificar(!servicio.EstaConfigurado && servicio.Actual.BodegaLocal == "" && !servicio.Actual.BodegasOrigen.Any(), "Sin datos del servidor no hay sucursal ni centros predeterminados");
+servicio.Restaurar(new() { BodegaLocal = "B7", BodegasOrigen = new(["B88"]), NombresBodegas = new() { ["B7"] = "Ambato", ["B88"] = "Quito" } });
+bool guardadaEnServidor = false;
+servicio.GuardarCompartido = c => { guardadaEnServidor = c.BodegaLocal == "B7"; return Task.CompletedTask; };
 await servicio.GuardarAsync();
-Verificar(js.Json is not null && !js.Json.Contains("B39"), "Guardar persiste solo orígenes autorizados");
-Verificar(servicio.ObtenerNombreBodega("B40") == "Ebenezer", "B40 se identifica como Ebenezer");
-Verificar(servicio.ObtenerNombreBodega("B39") == "Bame", "B39 se identifica como Bame");
+Verificar(guardadaEnServidor && servicio.ObtenerNombreBodega("B7") == "Ambato", "La selección utiliza los datos y el guardado del servidor");
 
 PruebasActividad.Ejecutar(Verificar);
 PruebasExportacion.Ejecutar(Verificar);
+PruebasFiltrosColumnas.Ejecutar(Verificar);
+PruebasFiltrosColumnas.VerificarTablaInventario(Verificar);
+await PruebasTrabajo.Ejecutar(Verificar);
 Console.WriteLine($"{comprobaciones} comprobaciones correctas.");
 
 if (args.Length == 2 && args[0] == "--vista")
+{
     await VistaPrevia.Generar(Path.GetFullPath(args[1]));
+    await VistaPrevia.VerificarInicio();
+}
 
 sealed class AlmacenamientoFalso(string? json) : IJSRuntime
 {

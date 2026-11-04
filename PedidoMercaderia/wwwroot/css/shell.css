@@ -1,0 +1,54 @@
+/* Estilos compartidos del layout: no dependen de los identificadores de CSS aislado. */
+.app-shell { display: flex; min-height: 100vh; min-height: 100dvh; color: #172b46; }
+.app-sidebar { width: 252px; flex: 0 0 252px; height: 100vh; height: 100dvh; position: sticky; top: 0; display: flex; flex-direction: column; background: #f8fafc; border-right: 1px solid #e2e8f0; }
+.app-main { flex: 1; min-width: 0; background: #fff; }
+.app-main > article { padding: 1.75rem 2rem; }
+.app-sidebar svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.app-brand-row { display: flex; align-items: center; justify-content: space-between; padding: 26px 20px; }
+.app-brand { display: flex; align-items: center; gap: 11px; color: #132c48; text-decoration: none; font-size: 20px; font-weight: 700; letter-spacing: -.4px; }
+.app-brand:hover { color: #132c48; }
+.app-brand small { display: block; margin-top: 2px; color: #62738a; font-size: 11px; font-weight: 400; letter-spacing: 0; }
+.app-brand-mark { display: grid; place-items: center; width: 38px; height: 40px; border-radius: 11px; background: #1b6ec2; color: #fff; }
+.app-brand-mark svg { width: 23px; height: 23px; }
+.app-navigation { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; }
+.app-menu { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px 24px; }
+.app-menu-label { padding: 0 13px 9px; color: #63758d; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
+.app-menu-link { display: flex; align-items: center; gap: 11px; min-height: 46px; padding: 11px 13px; border-radius: 8px; color: #475970; text-decoration: none; font-size: 13px; font-weight: 500; line-height: 1.4; }
+.app-menu-link:hover { background: #edf1f6; color: #163c69; }
+.app-menu-link.active { background: #e5effc; color: #1559a2; font-weight: 700; box-shadow: inset 3px 0 #1b6ec2; }
+.app-menu-toggle { display: none; }
+.app-account { margin: auto 16px 20px; padding-top: 20px; border-top: 1px solid #dfe6ef; color: #243b55; font-size: 12px; }
+.app-account .sesion-persona { display: flex; align-items: center; gap: 10px; }
+.app-account .sesion-persona > div { min-width: 0; }
+.app-account .sesion-persona strong { display: block; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.app-account .sesion-persona small { display: block; margin-top: 2px; color: #62738a; font-size: 11px; }
+.app-account .sesion-avatar { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; background: #e4eaf3; border: 1px solid #d5dfec; color: #385778; border-radius: 50%; font-size: 14px; font-weight: 700; text-transform: uppercase; }
+.app-account .sesion-estado { display: flex; align-items: center; gap: 7px; margin: 16px 0 12px; font-size: 11px; color: #426352; }
+.app-account .sesion-estado > span { width: 6px; height: 6px; border-radius: 50%; background: #288655; flex-shrink: 0; }
+.app-account .sesion-estado.con-error { color: #875509; }
+.app-account .sesion-estado.con-error > span { background: #b87512; }
+.app-account .sesion-actualizar { display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%; min-height: 38px; border: 1px solid #ced9e6; border-radius: 7px; padding: 8px; background: #fff; color: #2c4c70; font-size: 12px; font-weight: 600; }
+.app-account .sesion-actualizar svg { width: 15px; height: 15px; }
+.app-account .sesion-actualizar:hover:not(:disabled) { border-color: #8daed2; background: #edf4fd; }
+.app-account .sesion-ayuda { margin: 7px 0 15px; color: #62738a; font-size: 11px; line-height: 1.5; }
+.app-account .sesion-enlaces { display: flex; flex-direction: column; gap: 2px; }
+.app-account .sesion-enlaces a, .app-account .sesion-enlaces button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 34px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: #50637b; text-decoration: none; font-size: 12px; text-align: left; }
+.app-account .sesion-enlaces a:hover, .app-account .sesion-enlaces button:hover:not(:disabled) { background: #e9eef5; color: #173e6b; }
+.app-account button:disabled { opacity: .55; cursor: not-allowed; }
+.app-sidebar a:focus-visible, .app-sidebar button:focus-visible, .app-sidebar input:focus-visible { outline: 2px solid #1b6ec2; outline-offset: 3px; }
+.app-account .sesion-error, .app-account .sesion-conflicto { margin: 12px 0 0; padding: 10px; border: 1px solid #eed0aa; background: #fff7ea; border-radius: 8px; color: #75430b; overflow-wrap: anywhere; line-height: 1.5; }
+.app-account .sesion-conflicto p { margin-bottom: 8px; }
+.app-account .sesion-conflicto button { width: 100%; border: 1px solid #d7b17f; border-radius: 5px; padding: 7px; background: #fff; color: #75430b; font: inherit; }
+.app-account .sesion-conflicto label { display: block; margin: 12px 0; }
+@media (max-width: 640px) {
+    .app-shell { flex-direction: column; }
+    .app-sidebar { width: 100%; flex-basis: auto; height: auto; position: relative; border-right: 0; border-bottom: 1px solid #e2e8f0; }
+    .app-brand-row { padding: 14px 20px; }
+    .app-brand { font-size: 18px; }
+    .app-menu-toggle { display: block; min-height: 38px; padding: 7px 13px; border: 1px solid #ced9e6; border-radius: 7px; background: #fff; color: #2c4c70; font-size: 12px; }
+    .app-navigation { display: none; }
+    .app-navigation.is-open { display: flex; max-height: calc(100dvh - 75px); }
+    .app-menu { padding-bottom: 15px; }
+    .app-account { margin-top: 0; }
+    .app-main > article { padding: 20px 16px !important; }
+}

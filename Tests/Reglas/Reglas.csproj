@@ -10,7 +10,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="ExcelDataReader" Version="3.9.0" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
-    <Compile Include="../../PedidoMercaderia/Service/PedidoExportacionService.cs" Link="PedidoExportacionService.cs" />
+    <Compile Include="../../Servidor/Servicios/PedidoExportacionService.cs" Link="PedidoExportacionService.cs" />
     <Compile Include="../../PedidoMercaderia/Models/*.cs" Link="Models/%(Filename)%(Extension)" />
     <Compile Include="../../PedidoMercaderia/Service/ReglasAbastecimiento.cs" Link="ReglasAbastecimiento.cs" />
     <Compile Include="../../PedidoMercaderia/Service/PedidoService.cs" Link="PedidoService.cs" />
@@ -19,5 +19,14 @@
     <Compile Include="../../PedidoMercaderia/Service/ExcelImportacionService.cs" Link="ExcelImportacionService.cs" />
     <Compile Include="../../PedidoMercaderia/Service/InventarioService.cs" Link="InventarioService.cs" />
     <RazorComponent Include="../../PedidoMercaderia/Pages/RevisarPedido.razor" Link="Components/RevisarPedido.razor" />
+    <Compile Include="../../PedidoMercaderia/Service/TrabajoService.cs" Link="TrabajoService.cs" />
+    <RazorComponent Include="../../PedidoMercaderia/Pages/Importar.razor" Link="Components/Importar.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/AjustesBodegas.razor" Link="Components/AjustesBodegas.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/AjustesReposicion.razor" Link="Components/AjustesReposicion.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/BorradorProximo.razor" Link="Components/BorradorProximo.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/ReporteMovimientos.razor" Link="Components/ReporteMovimientos.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/TablaInventario.razor" Link="Components/TablaInventario.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/PopoverAnclado.razor" Link="Components/PopoverAnclado.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Components/SelectorBuscable.razor" Link="Components/SelectorBuscable.razor" />
   </ItemGroup>
 </Project>

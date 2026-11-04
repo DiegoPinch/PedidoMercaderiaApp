@@ -1,0 +1,86 @@
+@page "/resumen"
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@using PedidoMercaderia.Components
+@using Microsoft.JSInterop
+@inject TrabajoService Trabajo
+@inject ConfiguracionService Configuracion
+@inject IJSRuntime JS
+@inject NavigationManager Navegacion
+<PageTitle>Historial de pedidos</PageTitle>
+
+<div class="resumen-pedidos module-page">
+    <header class="module-header">
+        <div>
+            <span class="module-eyebrow">PEDIDOS GUARDADOS</span>
+            <h1>Historial de pedidos</h1>
+            <p>Consulta tus pedidos anteriores, revisa su detalle y descarga el Excel.</p>
+        </div>
+    </header>
+    @if (mensaje is not null) { <div class="alert alert-info" role="status">@mensaje</div> }
+    <form class="resumen-filtros ui-card mb-3" @onsubmit="() => CargarHistorial(1)" @onsubmit:preventDefault>
+        <label>Código exacto<input class="form-control form-control-sm" @bind="codigoHistorial" @bind:event="oninput" placeholder="Todos los productos" /></label>
+        <div class="selector-field"><label for="estadoHistorial">Estado</label><SelectorBuscable Id="estadoHistorial" Etiqueta="Estado" @bind-Valor="estadoHistorial" Opciones="@(new OpcionSelector[] { new("", "Todos"), new("Guardado", "Guardado"), new("Cancelado", "Anulado") })" /></div>
+        <label>Desde<input type="date" class="form-control form-control-sm" @bind="desde" /></label>
+        <label>Hasta<input type="date" class="form-control form-control-sm" @bind="hasta" /></label>
+        <button type="submit" class="btn btn-primary btn-sm align-self-end" disabled="@ocupado">Buscar pedidos</button>
+        @if (codigoHistorial != "" || estadoHistorial != "" || desde.HasValue || hasta.HasValue) { <button type="button" class="btn btn-link btn-sm align-self-end" disabled="@ocupado" @onclick="LimpiarHistorial">Limpiar filtros</button> }
+    </form>
+    @if (cargandoHistorial) { <p class="ui-loading" role="status">Cargando historial…</p> }
+    else if (historial is not null)
+    {
+        <p class="small">@historial.Total @(historial.Total == 1 ? "pedido encontrado" : "pedidos encontrados"). Fechas locales (UTC−5).</p>
+        <div class="resumen-tabla"><table class="table table-sm align-middle"><thead><tr><th>Pedido</th><th>Fecha</th><th>Persona</th><th>Sucursal</th><th>Estado</th><th></th></tr></thead><tbody>
+        @foreach (var p in historial.Pedidos)
+        { <tr><td><strong>#@p.Id</strong><small>@p.Productos productos</small></td><td>@p.Fecha.AddHours(-5).ToString("dd/MM/yyyy HH:mm")</td><td>@p.Autor</td><td>@Configuracion.ObtenerEtiquetaBodega(p.Destino)</td><td><span class="ui-status @(p.Estado == "Cancelado" ? "is-cancelled" : "")">@EstadoVisible(p.Estado)</span></td><td><div class="ui-row-actions"><button class="btn btn-outline-secondary btn-sm" @onclick="() => VerPedido(p.Id)">Ver detalle</button> <button class="btn btn-outline-primary btn-sm" disabled="@ocupado" @onclick="() => DescargarPedido(p.Id)">Descargar Excel</button></div></td></tr> }
+        @if (historial.Total == 0) { <tr><td colspan="6">No hay pedidos con estos filtros.</td></tr> }
+        </tbody></table></div>
+        <div class="d-flex align-items-center gap-3 my-2"><button class="btn btn-outline-secondary btn-sm" disabled="@(ocupado || historial.Pagina <= 1)" @onclick="() => CargarHistorial(historial.Pagina - 1)">Anterior</button>
+            <small>Página @historial.Pagina de @Math.Max(1, (historial.Total + historial.PorPagina - 1) / historial.PorPagina)</small>
+            <button class="btn btn-outline-secondary btn-sm" disabled="@(ocupado || historial.Pagina * historial.PorPagina >= historial.Total)" @onclick="() => CargarHistorial(historial.Pagina + 1)">Siguiente</button></div>
+    }
+    @if (detalle is not null)
+    {
+        <section class="card card-body mt-3"><div class="module-section-title"><h3 class="h5">Pedido #@detalle.Resumen.Id · @EstadoVisible(detalle.Resumen.Estado)</h3><button class="btn btn-light btn-sm" @onclick="() => detalle = null">Cerrar detalle ×</button></div>
+            <div class="resumen-tabla"><table class="table table-sm"><thead><tr><th>Producto</th><th>Desde</th><th>Cantidad</th><th>Comentario</th></tr></thead><tbody>
+            @foreach (var i in detalle.Items) { <tr><td><strong>@i.CodigoProducto</strong><small>@i.DescripcionProducto</small></td><td>@Configuracion.ObtenerNombreBodega(i.BodegaOrigen)</td><td>@Numero(i.CantidadSolicitada)</td><td>@i.Comentario</td></tr> }
+            </tbody></table></div>
+            <div class="d-flex gap-2 flex-wrap mt-2"><button class="btn btn-outline-primary btn-sm" @onclick="ExportarHistorial">Descargar este pedido</button>
+            @if (detalle.Resumen.Estado != "Cancelado")
+            {
+                <button class="btn btn-outline-danger btn-sm" disabled="@ocupado" @onclick="AnularPedido">Anular pedido</button>
+            }</div><small class="mt-2">La anulación queda en el historial. Si corresponde al último Excel, reabre su preparación y recupera sus artículos.</small>
+        </section>
+    }
+</div>
+@code {
+    private bool ocupado, cargandoHistorial;
+    private string codigoHistorial = "", estadoHistorial = "";
+    private DateOnly? desde, hasta;
+    private string? mensaje;
+    private PedidoDetalle? detalle;
+    private PaginaHistorial? historial;
+    private static string EstadoVisible(string estado) => estado == "Cancelado" ? "Anulado" : "Guardado";
+    private static string Numero(decimal? n) => n?.ToString("0.##") ?? "—";
+    protected override Task OnInitializedAsync() => CargarHistorial(1);
+    private async Task Ejecutar(Func<Task> accion) { ocupado = true; mensaje = null; try { await accion(); } catch (Exception ex) { mensaje = ex.Message; } finally { ocupado = false; } }
+    private Task CargarHistorial(int paginaHistorial) => Ejecutar(async () =>
+    {
+        if (desde.HasValue && hasta.HasValue && desde > hasta) { mensaje = "La fecha Hasta debe ser igual o posterior a Desde."; return; }
+        detalle = null; historial = null; cargandoHistorial = true;
+        try { historial = await Trabajo.Historial(codigoHistorial, estadoHistorial, desde?.ToString("yyyy-MM-dd") ?? "", hasta?.ToString("yyyy-MM-dd") ?? "", paginaHistorial); }
+        finally { cargandoHistorial = false; }
+    });
+    private Task LimpiarHistorial() { codigoHistorial = estadoHistorial = ""; desde = hasta = null; return CargarHistorial(1); }
+    private Task VerPedido(long id) => Ejecutar(async () => { detalle = await Trabajo.Detalle(id); });
+    private Task AnularPedido() => Ejecutar(async () => { await Trabajo.CambiarEstado(detalle!.Resumen.Id, "Cancelado"); Navegacion.NavigateTo("pedido?lista=mi-pedido"); });
+    private Task ExportarHistorial() => DescargarPedido(detalle!.Resumen.Id);
+    private Task DescargarPedido(long id) => Ejecutar(() => Descargar(id));
+    private async Task Descargar(long id)
+    {
+        using var stream = new MemoryStream(await Trabajo.DescargarExcel(id));
+        using var referencia = new DotNetStreamReference(stream);
+        await using var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/descargarPedido.js");
+        await modulo.InvokeVoidAsync("descargarPedido", $"Pedido_{id}.xlsx", referencia);
+    }
+}

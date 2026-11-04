@@ -1,0 +1,78 @@
+@namespace PedidoMercaderia.Components
+@using Microsoft.AspNetCore.Components.Forms
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@inject ActividadService Actividad
+@inject InventarioService Inventario
+@inject ConfiguracionService Configuracion
+@inject TrabajoService Trabajo
+
+<section class="border rounded p-3 mb-3" aria-label="Reporte de movimientos">
+    @if (Actividad.Actual is ReporteActividad actual)
+    {
+        <p class="small mb-2"><strong>Movimientos de @Configuracion.ObtenerEtiquetaBodega(Configuracion.Actual.BodegaLocal)</strong>:
+            @actual.NombreArchivo · @actual.FechaReporte.ToString("dd/MM/yyyy") · @actual.Coincidencias coincidencias. Guardado.</p>
+        @if (Trabajo.Estado.Corte is { } corte && actual.FechaReporte < corte.Fecha)
+        { <p class="small text-muted mb-2">El reporte es anterior al inventario. Los días sin movimiento corresponden a la fecha del reporte.</p> }
+    }
+    <details>
+        <summary>@(Actividad.TieneReporte ? "Actualizar reporte de movimientos" : "Cargar reporte de movimientos · Opcional")</summary>
+        <div class="mt-3">
+            <p class="small text-muted">Carga el Excel de @Configuracion.ObtenerEtiquetaBodega(Configuracion.Actual.BodegaLocal) para apartar productos sin actividad. Incluye ventas y transferencias. Se reutiliza el último reporte guardado.</p>
+            <fieldset disabled="@(procesando || Trabajo.Ocupado)">
+                <div class="row g-3">
+                    <div class="col-sm-4"><label for="fechaActividad" class="form-label">Fecha del reporte</label><input id="fechaActividad" type="date" class="form-control" @bind="fecha" max="@DateTime.Today.ToString("yyyy-MM-dd")" /></div>
+                    <div class="col-sm-8"><label for="archivoActividad" class="form-label">Excel de movimientos</label><InputFile id="archivoActividad" class="form-control" accept=".xls,.xlsx" OnChange="Importar" /></div>
+                </div>
+                @if (Actividad.TieneReporte)
+                { <button class="btn btn-link btn-sm mt-2" @onclick="Quitar">Quitar reporte guardado</button> }
+            </fieldset>
+        </div>
+    </details>
+    @if (procesando) { <p class="small mt-2 mb-0" role="status">Guardando reporte…</p> }
+    @if (error is not null) { <p class="text-danger small mt-2 mb-0" role="alert">@error</p> }
+</section>
+
+@code {
+    [Parameter] public EventCallback AlCambiar { get; set; }
+    private const long LimiteArchivo = 20L * 1024 * 1024;
+    private DateTime fecha = DateTime.Today;
+    private bool procesando;
+    private string? error;
+
+    private async Task Importar(InputFileChangeEventArgs e)
+    {
+        error = null;
+        var archivo = e.File;
+        if (!(archivo.Name.EndsWith(".xls", StringComparison.OrdinalIgnoreCase)
+            || archivo.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            || archivo.Size == 0 || archivo.Size > LimiteArchivo)
+        { error = "Selecciona un Excel .xls o .xlsx de hasta 20 MB."; return; }
+        if (fecha.Date > DateTime.Today || fecha.Year < 1900)
+        { error = "Selecciona una fecha válida, que no sea futura."; return; }
+        procesando = true;
+        var corteId = Trabajo.Estado.Corte?.Id ?? 0;
+        var bodega = Configuracion.Actual.BodegaLocal;
+        var productos = Inventario.Productos;
+        try
+        {
+            await using var flujo = archivo.OpenReadStream(LimiteArchivo);
+            using var memoria = new MemoryStream();
+            await flujo.CopyToAsync(memoria);
+            var reporte = Actividad.Analizar(memoria, archivo.Name, DateOnly.FromDateTime(fecha), productos);
+            await Trabajo.GuardarActividad(reporte, corteId, bodega);
+            await AlCambiar.InvokeAsync();
+        }
+        catch (Exception ex)
+        { error = "No se pudo cargar el reporte. " + ex.Message + " El reporte anterior se conserva si no llegó a guardarse."; }
+        finally { procesando = false; }
+    }
+
+    private async Task Quitar()
+    {
+        error = null; procesando = true;
+        try { await Trabajo.GuardarActividad(null, Trabajo.Estado.Corte?.Id ?? 0, Configuracion.Actual.BodegaLocal); await AlCambiar.InvokeAsync(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { procesando = false; }
+    }
+}

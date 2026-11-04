@@ -5,6 +5,15 @@ namespace PedidoMercaderia.Services
 {
     public class PedidoService
     {
+        public bool Compartido { get; set; }
+        public event Action? Cambiado;
+        public Func<Task>? EsperarGuardado { get; set; }
+        public void NotificarCambio() => Cambiado?.Invoke();
+        public void Restaurar(IEnumerable<ItemPedido> items)
+        {
+            _items.Clear();
+            foreach (var item in items) _items[item.CodigoProducto] = item;
+        }
         private readonly Dictionary<string, ItemPedido> _items =
             new(StringComparer.OrdinalIgnoreCase);
 
@@ -29,11 +38,31 @@ namespace PedidoMercaderia.Services
                 : null;
         }
 
+        public bool Anotar(ProductoInventario producto, decimal cantidad)
+        {
+            if (cantidad <= 0 || Contiene(producto.Codigo)) return false;
+            _items.Add(producto.Codigo, new ItemPedido { CodigoProducto = producto.Codigo,
+                DescripcionProducto = producto.Descripcion, CantidadSolicitada = cantidad, RequiereRevision = true, ReservaCentro = 1 });
+            NotificarCambio();
+            return true;
+        }
+
+        public bool ConfirmarRevision(ProductoInventario producto, ConfiguracionBodegas config)
+        {
+            var item = Obtener(producto.Codigo);
+            if (item is null || !config.OrigenesHabilitados.Contains(item.BodegaOrigen)
+                || item.CantidadSolicitada <= 0 || item.CantidadSolicitada > ReglasAbastecimiento.Disponible(producto, item.BodegaOrigen, item.ReservaCentro)) return false;
+            item.RequiereRevision = false;
+            NotificarCambio();
+            return true;
+        }
+
         public bool Agregar(
             ProductoInventario producto,
             ConfiguracionBodegas configuracion,
             decimal cantidadInicial = 1,
-            decimal reservaCentro = 0)
+            decimal reservaCentro = 0,
+            string comentario = "")
         {
             if (Contiene(producto.Codigo))
                 return false;
@@ -64,13 +93,16 @@ namespace PedidoMercaderia.Services
             _items.Add(producto.Codigo, new ItemPedido
             {
                 CodigoProducto = producto.Codigo,
+                DescripcionProducto = producto.Descripcion,
                 BodegaOrigen = origen.Codigo,
                 ReservaCentro = reservaCentro,
+                Comentario = comentario.Length > 300 ? comentario[..300] : comentario,
                 CantidadSolicitada = Math.Min(
                     cantidadInicial,
                     origen.Disponible)
             });
 
+            NotificarCambio();
             return true;
         }
 
@@ -99,7 +131,7 @@ namespace PedidoMercaderia.Services
 
         public void Quitar(string codigo)
         {
-            _items.Remove(codigo);
+            if (_items.Remove(codigo)) NotificarCambio();
         }
 
         public bool CambiarCantidad(
@@ -115,13 +147,13 @@ namespace PedidoMercaderia.Services
                 producto, item.BodegaOrigen, item.ReservaCentro);
 
             if (nuevaCantidad <= 0 ||
-                nuevaCantidad > disponible)
+                (!item.RequiereRevision && nuevaCantidad > disponible))
             {
                 return false;
             }
 
             item.CantidadSolicitada = nuevaCantidad;
-
+            NotificarCambio();
             return true;
         }
 
@@ -145,10 +177,9 @@ namespace PedidoMercaderia.Services
 
             item.BodegaOrigen = nuevaBodega;
 
-            item.CantidadSolicitada = Math.Min(
-                item.CantidadSolicitada,
-                disponible);
-
+            if (!item.RequiereRevision)
+                item.CantidadSolicitada = Math.Min(item.CantidadSolicitada, disponible);
+            NotificarCambio();
             return true;
         }
 
@@ -221,6 +252,7 @@ namespace PedidoMercaderia.Services
         {
             _items.Clear();
             Omitidos.Clear();
+            NotificarCambio();
         }
     }
 }

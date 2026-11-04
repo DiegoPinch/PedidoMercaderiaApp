@@ -7,6 +7,7 @@ namespace PedidoMercaderia.Services;
 public class ActividadService
 {
     public ReporteActividad? Actual { get; private set; }
+    public string BodegaLocal { get; set; } = "";
     public bool TieneReporte => Actual is not null;
     private readonly HashSet<string> _incluir = new(StringComparer.OrdinalIgnoreCase);
 
@@ -18,10 +19,28 @@ public class ActividadService
         var dato = Obtener(producto.Codigo);
         // Un agotado puede no moverse porque no hay qué vender. Ante datos contradictorios, conservarlo.
         return dias > 0 && dato is not null && !_incluir.Contains(NormalizarCodigo(producto.Codigo))
-            && producto.ObtenerStock("B4") > 0 && dato.StockB4 > 0 && dato.DiasSinActividad >= dias;
+            && producto.ObtenerStock(BodegaLocal) > 0 && dato.StockB4 > 0 && dato.DiasSinActividad >= dias;
     }
 
     public void Incluir(string codigo) => _incluir.Add(NormalizarCodigo(codigo));
+
+    public void Restaurar(ReporteActividad? reporte, IReadOnlyList<ProductoInventario> inventario)
+    {
+        Limpiar();
+        if (reporte is null) return;
+        reporte.Productos = new(reporte.Productos, StringComparer.OrdinalIgnoreCase);
+        reporte.Coincidencias = inventario.Count(p => reporte.Productos.ContainsKey(NormalizarCodigo(p.Codigo)));
+        Actual = reporte;
+    }
+
+    // Analizar sin reemplazar el reporte activo: solo se publica tras guardarlo en el servidor.
+    public ReporteActividad Analizar(Stream archivo, string nombre, DateOnly fecha,
+        IReadOnlyList<ProductoInventario> inventario)
+    {
+        var lector = new ActividadService();
+        lector.Importar(archivo, nombre, fecha, inventario);
+        return lector.Actual!;
+    }
 
     public void Limpiar()
     {
@@ -35,7 +54,7 @@ public class ActividadService
         if (inventario.Count == 0)
             throw new InvalidDataException("Primero importa el inventario de bodegas.");
         if (!archivo.CanRead || !archivo.CanSeek)
-            throw new InvalidDataException("No se puede leer el reporte de B4.");
+            throw new InvalidDataException("No se puede leer el reporte de tu sucursal.");
         archivo.Position = 0;
         using var lector = ExcelReaderFactory.CreateReader(archivo);
         var codigosInventario = inventario.Select(p => NormalizarCodigo(p.Codigo))
@@ -115,7 +134,7 @@ public class ActividadService
 
         throw new InvalidDataException(encontroCabecera
             ? "El reporte no contiene datos válidos que coincidan con el inventario. Revisa los códigos, el stock y los días sin actividad."
-            : "Faltan las columnas COD_ITEM, STOCK y DIAS_SIN_ACTIVIDAD del reporte de B4.");
+            : "Faltan las columnas COD_ITEM, STOCK y DIAS_SIN_ACTIVIDAD del reporte de tu sucursal.");
     }
 
     private static string NormalizarCodigo(string valor) => new string(valor.Where(c => !char.IsControl(c)).ToArray()).Trim();

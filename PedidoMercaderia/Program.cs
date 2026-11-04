@@ -38,6 +38,7 @@ namespace PedidoMercaderia
 
             // Inventario en memoria
             builder.Services.AddSingleton<InventarioService>();
+            builder.Services.AddScoped<TrabajoService>();
 
             await builder.Build().RunAsync();
         }

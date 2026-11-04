@@ -1,0 +1,63 @@
+@using PedidoMercaderia.Services
+@using PedidoMercaderia.Models
+@inject TrabajoService Trabajo
+@implements IDisposable
+
+@if (cargando)
+{ <div class="auth-shell"><div class="auth-card" role="status"><span class="module-eyebrow">PEDIDOS</span><h1>Preparando tu espacio</h1><p>Cargando el trabajo de tu sucursal…</p></div></div> }
+else if (Trabajo.Usuario is null)
+{
+    <PageTitle>Acceder a Pedidos</PageTitle>
+    <main class="auth-shell">
+    <section class="auth-intro"><span class="auth-wordmark">Pedidos<span>Gestión de mercadería</span></span><div><span class="auth-kicker">TU SUCURSAL, AL DÍA</span><h2>Menos revisión.<br />Mejores pedidos.</h2><p>Tu inventario, los pedidos de tu equipo y las recomendaciones, en un solo lugar.</p></div><span class="auth-footer">Organiza · Revisa · Pide</span></section>
+    <section class="auth-card" aria-label="Acceso a pedidos">
+        <span class="module-eyebrow">PEDIDOS DE MERCADERÍA</span>
+        <h1>@(Trabajo.RequiereConfiguracion ? "Configura tu acceso" : "Bienvenido de nuevo")</h1>
+        <p>@(Trabajo.RequiereConfiguracion ? "Crea la primera cuenta administradora." : "Entra para continuar el pedido de tu sucursal.")</p>
+        @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+        <form @onsubmit="Entrar" @onsubmit:preventDefault>
+            <fieldset disabled="@enviando">
+                <label class="form-label" for="usuario">Usuario</label>
+                <input id="usuario" class="form-control mb-3" required maxlength="40" autocomplete="username" @bind="usuario" />
+                @if (Trabajo.RequiereConfiguracion)
+                {
+                    <label class="form-label" for="nombre">Tu nombre</label><input id="nombre" class="form-control mb-3" required maxlength="80" @bind="nombre" />
+                    <label class="form-label" for="instalacion">Clave de instalación</label><input id="instalacion" class="form-control mb-2" required type="password" @bind="instalacion" />
+                    <p class="small text-muted">Está en Datos/clave-instalacion.txt, en el equipo del servidor. Solo se usa para crear la primera cuenta.</p>
+                }
+                <label class="form-label" for="clave">Contraseña</label>
+                <input id="clave" type="password" class="form-control mb-3" required maxlength="128" autocomplete="@(Trabajo.RequiereConfiguracion ? "new-password" : "current-password")" @bind="clave" />
+                @if (Trabajo.RequiereConfiguracion) { <p class="small text-muted">Al menos 10 caracteres.</p> }
+                <button class="btn btn-primary w-100" type="submit">@(enviando ? "Entrando…" : Trabajo.RequiereConfiguracion ? "Crear cuenta y entrar" : "Entrar")</button>
+            </fieldset>
+        </form>
+    </section>
+    </main>
+}
+else
+{
+    @if (error is not null) { <div class="alert alert-danger m-3" role="alert">@error</div> }
+    <fieldset disabled="@Trabajo.Ocupado" style="min-width:0"><div @key="Trabajo.Carga">@ChildContent</div></fieldset>
+}
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private bool cargando = true, enviando;
+    private string usuario = "", clave = "", nombre = "", instalacion = "";
+    private string? error;
+    protected override async Task OnInitializedAsync()
+    {
+        Trabajo.Cambiado += Cambio;
+        try { await Trabajo.Iniciar(); }
+        catch { error = "No se pudo conectar al servidor de pedidos. Inicia el proyecto Servidor y abre su dirección; la versión estática no incluye base de datos."; }
+        finally { cargando = false; }
+    }
+    private void Cambio() => _ = InvokeAsync(StateHasChanged);
+    private async Task Entrar()
+    {
+        error = null; enviando = true;
+        try { var datos = new AccesoSolicitud(usuario, clave, nombre, instalacion); if (Trabajo.RequiereConfiguracion) await Trabajo.Configurar(datos); else await Trabajo.Entrar(datos); clave = instalacion = ""; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { enviando = false; }
+    }
+    public void Dispose() => Trabajo.Cambiado -= Cambio;
+}

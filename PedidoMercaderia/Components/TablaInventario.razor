@@ -1,0 +1,104 @@
+@namespace PedidoMercaderia.Components
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@inject ConfiguracionService Configuracion
+
+<section class="inventario-productos mt-4" aria-labelledby="tituloProductos">
+    <div class="module-section-title"><h2 id="tituloProductos" class="h5">Productos del inventario</h2><span class="module-badge">@filtrados.Count.ToString("N0") @(filtrados.Count == 1 ? "resultado" : "resultados")</span></div>
+    <div class="inventory-filters">
+        <div class="inventory-search">
+            <label class="form-label small" for="buscarInventario">Buscar producto</label>
+            <input id="buscarInventario" type="search" class="form-control form-control-sm" placeholder="Código, descripción o marca" value="@busqueda" @oninput="Buscar" />
+        </div>
+        <div>
+            <label class="form-label small" for="bodegaInventario">Ver existencias en</label>
+            <SelectorBuscable Id="bodegaInventario" Etiqueta="Ver existencias en" @bind-Valor="bodega" @bind-Valor:after="Filtrar"
+                Deshabilitado="@(bodegas.Count == 0)" Opciones="@bodegas.Select(b => new OpcionSelector(b, Etiqueta(b)))" />
+        </div>
+        <div><label class="form-label" for="marcaInventario">Marca</label><SelectorBuscable Id="marcaInventario" Etiqueta="Marca" @bind-Valor="marca" @bind-Valor:after="Filtrar" Opciones="@marcas.Select(m => new OpcionSelector(m, m)).Prepend(new OpcionSelector("", "Todas las marcas"))" /></div>
+        <div><label class="form-label" for="stockInventario">Existencias</label><SelectorBuscable Id="stockInventario" Etiqueta="Existencias" @bind-Valor="stock" @bind-Valor:after="Filtrar" Opciones="@(new OpcionSelector[] { new("", "Todos"), new("con", "Con stock"), new("sin", "Sin stock disponible") })" /></div>
+    </div>
+    <div class="ui-filter-summary"><span>Ordena los resultados pulsando una columna.</span>@if (busqueda.Length > 0 || marca != "" || stock != "" || orden != "codigo" || descendente) { <button class="btn btn-link btn-sm" @onclick="Limpiar">Limpiar filtros y orden</button> }</div>
+    <div class="tabla-inventario-contenedor border rounded" tabindex="0" role="region" aria-label="Lista de productos">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr>@foreach (var columna in new[] { "codigo", "marca", "stock", "total" })
+                { <th scope="col" aria-sort="@(orden == columna ? (descendente ? "descending" : "ascending") : "none")"><button class="ui-sort-header" aria-label="@($"Ordenar por {NombreColumna(columna)}")" @onclick="() => Ordenar(columna)">@NombreColumna(columna)<span aria-hidden="true">@(orden == columna ? (descendente ? "↓" : "↑") : "↕")</span></button></th> }
+            </tr></thead>
+            <tbody>
+                @foreach (var producto in filtrados.Skip((pagina - 1) * PorPagina).Take(PorPagina))
+                {
+                    <tr @key="producto.Codigo">
+                        <td class="producto"><strong>@producto.Codigo</strong><small title="@producto.Descripcion">@producto.Descripcion</small></td>
+                        <td class="marca">@producto.Marca</td>
+                        <td class="text-end cantidad">@(bodega == "" ? "—" : Numero(producto.ObtenerStock(bodega)))</td>
+                        <td class="text-end cantidad">@Numero(producto.TotalCalculado)</td>
+                    </tr>
+                }
+                @if (filtrados.Count == 0)
+                { <tr><td colspan="4" class="ui-empty">No hay productos que coincidan con estos filtros.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+        <small role="status">@Desde–@Hasta de @filtrados.Count productos</small>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" disabled="@(pagina == 1)" @onclick="() => pagina--">Anterior</button>
+            <small>Página @pagina de @Paginas</small>
+            <button class="btn btn-outline-secondary btn-sm" disabled="@(pagina >= Paginas)" @onclick="() => pagina++">Siguiente</button>
+        </div>
+    </div>
+    <p class="small text-muted mt-2">Existencias del Excel. El total suma todas las bodegas del archivo.</p>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public ResultadoImportacion Inventario { get; set; } = new();
+    private const int PorPagina = 50;
+    private ResultadoImportacion? inventarioAnterior;
+    private List<ProductoInventario> productos = [], filtrados = [];
+    private List<string> bodegas = [], marcas = [];
+    private string busqueda = "", bodega = "", marca = "", stock = "", orden = "codigo";
+    private bool descendente;
+    private int pagina = 1;
+    private int Paginas => Math.Max(1, (int)Math.Ceiling(filtrados.Count / (double)PorPagina));
+    private int Desde => filtrados.Count == 0 ? 0 : (pagina - 1) * PorPagina + 1;
+    private int Hasta => Math.Min(pagina * PorPagina, filtrados.Count);
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Inventario, inventarioAnterior)) return;
+        inventarioAnterior = Inventario;
+        productos = Inventario.Productos.OrderBy(p => p.Codigo, StringComparer.OrdinalIgnoreCase).ToList();
+        bodegas = Inventario.BodegasDetectadas.Concat(productos.SelectMany(p => p.Existencias.Keys))
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(b => b.Length).ThenBy(b => b, StringComparer.OrdinalIgnoreCase).ToList();
+        bodega = bodegas.Contains(Configuracion.Actual.BodegaLocal) ? Configuracion.Actual.BodegaLocal : bodegas.FirstOrDefault() ?? "";
+        marcas = productos.Select(p => p.Marca).Where(m => !string.IsNullOrWhiteSpace(m)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m).ToList();
+        Limpiar();
+    }
+    private void Buscar(ChangeEventArgs e)
+    {
+        busqueda = e.Value?.ToString() ?? "";
+        Filtrar();
+    }
+    private void Filtrar()
+    {
+        var texto = busqueda.Trim();
+        var resultado = productos.Where(p => (texto.Length == 0 || p.Codigo.Contains(texto, StringComparison.OrdinalIgnoreCase)
+            || p.Descripcion.Contains(texto, StringComparison.OrdinalIgnoreCase)
+            || p.Marca.Contains(texto, StringComparison.OrdinalIgnoreCase))
+            && (marca == "" || p.Marca.Equals(marca, StringComparison.OrdinalIgnoreCase))
+            && (stock == "" || (stock == "con" ? p.ObtenerStock(bodega) > 0 : p.ObtenerStock(bodega) <= 0)));
+        IOrderedEnumerable<ProductoInventario> ordenados = orden switch
+        {
+            "stock" => descendente ? resultado.OrderByDescending(p => p.ObtenerStock(bodega)) : resultado.OrderBy(p => p.ObtenerStock(bodega)),
+            "total" => descendente ? resultado.OrderByDescending(p => p.TotalCalculado) : resultado.OrderBy(p => p.TotalCalculado),
+            "marca" => descendente ? resultado.OrderByDescending(p => p.Marca, StringComparer.OrdinalIgnoreCase) : resultado.OrderBy(p => p.Marca, StringComparer.OrdinalIgnoreCase),
+            _ => descendente ? resultado.OrderByDescending(p => p.Codigo, StringComparer.OrdinalIgnoreCase) : resultado.OrderBy(p => p.Codigo, StringComparer.OrdinalIgnoreCase)
+        };
+        filtrados = ordenados.ThenBy(p => p.Codigo, StringComparer.OrdinalIgnoreCase).ToList();
+        pagina = 1;
+    }
+    private void Limpiar() { busqueda = marca = stock = ""; orden = "codigo"; descendente = false; Filtrar(); }
+    private void Ordenar(string columna) { descendente = orden == columna && !descendente; orden = columna; Filtrar(); }
+    private string NombreColumna(string columna) => columna switch { "codigo" => "Código / descripción", "marca" => "Marca", "stock" => bodega == "" ? "Existencias" : Etiqueta(bodega), _ => "Total archivo" };
+    private string Etiqueta(string codigo) => Configuracion.ObtenerNombreBodega(codigo) is var nombre && nombre != codigo ? $"{codigo} · {nombre}" : codigo;
+    private static string Numero(decimal valor) => valor.ToString("0.##", System.Globalization.CultureInfo.GetCultureInfo("es-EC"));
+}

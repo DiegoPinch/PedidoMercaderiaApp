@@ -9,16 +9,15 @@ public static class PruebasExportacion
 {
     public static void Ejecutar(Action<bool, string> verificar)
     {
-        var configuracion = new ConfiguracionBodegas();
+        var configuracion = new ConfiguracionBodegas { BodegaLocal = "B4", BodegasOrigen = new(["B1", "B40"]), NombresBodegas = new() { ["B40"] = "Centro Costa" } };
         var productos = new[]
         {
             new ProductoInventario { Codigo = "000123", Descripcion = "CABLE UTP INTERIOR CAT5E 100% COBRE BLANCO 100M TECLAM", Existencias = new() { ["B1"] = 100, ["B40"] = 200 } },
             new ProductoInventario { Codigo = "=COD-02", Descripcion = "Conector RJ45 & adaptador <especial>", Existencias = new() { ["B1"] = 40 } }
         };
         var pedido = new PedidoService();
-        pedido.Agregar(productos[0], configuracion, 10, 1);
+        pedido.Agregar(productos[0], configuracion, 10, 1, "Enviar rollos completos. Coordinar entrega con la sucursal.");
         pedido.Agregar(productos[1], configuracion, .5m, 0);
-        pedido.Obtener("000123")!.Comentario = "Enviar rollos completos. Coordinar entrega con la sucursal.";
         pedido.CambiarCantidad(productos[0], 20);
         pedido.CambiarBodega(productos[0], "B1", configuracion);
         verificar(pedido.Obtener("000123")!.Comentario.StartsWith("Enviar"), "Cambiar cantidad y origen conserva el comentario");
@@ -43,7 +42,7 @@ public static class PruebasExportacion
             verificar(lector.GetString(0) == "=COD-02" && lector.GetDouble(3) == .5 && lector.GetString(4) == "=1+1", "Otro lector recupera texto literal y cantidad decimal numérica");
             lector.Read();
             verificar(lector.GetString(0) == "000123", "Un lector independiente conserva el código completo con ceros iniciales");
-            verificar(lector.GetString(2) == "B40 · Ebenezer" && lector.GetString(4).StartsWith("Enviar"), "Exporta el origen elegido y el comentario de cada fila");
+            verificar(lector.GetString(2) == "B40 · Centro Costa" && lector.GetString(4).StartsWith("Enviar"), "Exporta el origen elegido y el comentario de cada fila");
         }
         void Rechaza(Action accion, string nombre)
         {
@@ -51,6 +50,14 @@ public static class PruebasExportacion
             catch (InvalidOperationException) { verificar(true, nombre); }
         }
         Rechaza(() => PedidoExportacionService.Crear([], productos, configuracion), "Impide exportar pedidos vacíos");
+        var anticipado = new PedidoService();
+        anticipado.Anotar(productos[0], 150);
+        verificar(anticipado.Obtener("000123")!.CantidadSolicitada == 150 && anticipado.Obtener("000123")!.BodegaOrigen == "", "Anotar conserva la cantidad solicitada sin asignar origen con stock antiguo");
+        Rechaza(() => PedidoExportacionService.Crear(anticipado.Items, productos, configuracion), "No exporta anotaciones sin revisión");
+        anticipado.CambiarBodega(productos[0], "B1", configuracion);
+        verificar(anticipado.Obtener("000123")!.CantidadSolicitada == 150 && !anticipado.ConfirmarRevision(productos[0], configuracion), "Elegir un origen insuficiente no recorta silenciosamente la cantidad anticipada");
+        anticipado.CambiarCantidad(productos[0], 10);
+        verificar(anticipado.ConfirmarRevision(productos[0], configuracion) && PedidoExportacionService.Crear(anticipado.Items, productos, configuracion).Length > 0, "Tras confirmar un origen y cantidad válidos, el pedido se puede exportar");
         pedido.Obtener("000123")!.BodegaOrigen = "B39";
         Rechaza(() => PedidoExportacionService.Crear(pedido.Items, productos, configuracion), "Impide exportar productos desde Bame");
         pedido.Obtener("000123")!.BodegaOrigen = "B40";

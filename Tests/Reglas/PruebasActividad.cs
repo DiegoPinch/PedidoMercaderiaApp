@@ -6,7 +6,7 @@ public static class PruebasActividad
     public static void Ejecutar(Action<bool, string> verificar)
     {
         var fecha = new DateOnly(2026, 10, 27);
-        var actividad = new ActividadService();
+        var actividad = new ActividadService { BodegaLocal = "B4" };
         var pedido = new PedidoService();
         var inventario = new InventarioService(new ExcelImportacionService(), pedido, actividad);
         using var baseExcel = LibroPrueba.Crear(
@@ -31,7 +31,7 @@ public static class PruebasActividad
             ["INVALIDO", 5, -10, null],
             ["SIN-STOCK-REPORTE", 0, 300, null],
             ["NO-EXISTE", 5, 100, null]);
-        pedido.Agregar(Producto("ANTIGUO"), new ConfiguracionBodegas(), 10, 1);
+        pedido.Agregar(Producto("ANTIGUO"), new ConfiguracionBodegas { BodegaLocal = "B4", BodegasOrigen = new(["B1", "B40"]) }, 10, 1);
         actividad.Importar(reporte, "Movimientos B4", fecha, inventario.Productos);
         verificar(pedido.TotalProductos == 1, "Cargar movimientos conserva el pedido existente");
         verificar(actividad.Obtener("antiguo")?.DiasSinActividad == 180, "Limpia caracteres de control y cruza códigos sin distinguir mayúsculas");
@@ -50,6 +50,13 @@ public static class PruebasActividad
         actividad.Importar(nuevoReporte, "Nuevo corte", fecha, inventario.Productos);
         verificar(actividad.DebeApartar(Producto("ANTIGUO"), 180), "Reemplazar el reporte reinicia las excepciones temporales");
         var previo = actividad.Actual;
+        using var soloAnalizar = new MemoryStream(reporte.ToArray());
+        var analizado = actividad.Analizar(soloAnalizar, "Por guardar", fecha, inventario.Productos);
+        verificar(ReferenceEquals(previo, actividad.Actual) && analizado.NombreArchivo == "Por guardar", "Analizar un Excel no reemplaza el reporte antes de guardarlo");
+        var recuperado = System.Text.Json.JsonSerializer.Deserialize<ReporteActividad>(System.Text.Json.JsonSerializer.Serialize(analizado));
+        actividad.Restaurar(recuperado, inventario.Productos);
+        verificar(actividad.Obtener("antiguo")?.DiasSinActividad == 180 && actividad.DebeApartar(Producto("ANTIGUO"), 180), "Recuperar el reporte guardado conserva códigos y aplica el filtro de actividad");
+        previo = actividad.Actual;
         using var ajeno = LibroPrueba.Crear(["COD_ITEM", "STOCK", "DIAS_SIN_ACTIVIDAD"], ["OTRO", 2, 200]);
         try { actividad.Importar(ajeno, "Ajeno", fecha, inventario.Productos); verificar(false, "Debió rechazar códigos ajenos"); }
         catch (InvalidDataException) { verificar(ReferenceEquals(previo, actividad.Actual), "Un reporte sin coincidencias conserva el anterior"); }

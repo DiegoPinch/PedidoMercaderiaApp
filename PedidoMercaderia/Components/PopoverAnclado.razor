@@ -1,0 +1,60 @@
+@namespace PedidoMercaderia.Components
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div id="@Id" class="column-popover @Clase" popover="auto" role="dialog" aria-label="@Titulo" tabindex="-1" @ref="elemento">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+    [Parameter] public string? AnclaId { get; set; }
+    [Parameter] public string Titulo { get; set; } = "Filtrar columna";
+    [Parameter] public bool Abierto { get; set; }
+    [Parameter] public string Clase { get; set; } = "";
+    [Parameter] public string? OpcionActivaId { get; set; }
+    [Parameter] public EventCallback AlCerrar { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private ElementReference elemento;
+    private IJSObjectReference? modulo;
+    private DotNetObjectReference<PopoverAnclado>? referencia;
+    private string? anclaMostrada;
+    private string? opcionMostrada;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Abierto && AnclaId != anclaMostrada)
+        {
+            modulo ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/popoverAnclado.js");
+            referencia ??= DotNetObjectReference.Create(this);
+            anclaMostrada = AnclaId;
+            opcionMostrada = null;
+            await modulo.InvokeVoidAsync("mostrar", elemento, AnclaId, referencia);
+        }
+        if (Abierto && modulo is not null && OpcionActivaId != opcionMostrada)
+        {
+            opcionMostrada = OpcionActivaId;
+            await modulo.InvokeVoidAsync("mostrarOpcion", OpcionActivaId);
+        }
+        if (!Abierto && anclaMostrada is not null && modulo is not null)
+        {
+            anclaMostrada = null;
+            opcionMostrada = null;
+            await modulo.InvokeVoidAsync("ocultar", elemento);
+        }
+    }
+
+    [JSInvokable]
+    public Task Cerrado() => AlCerrar.InvokeAsync();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (modulo is not null)
+        {
+            try { await modulo.InvokeVoidAsync("destruir", elemento); await modulo.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+        referencia?.Dispose();
+    }
+}

@@ -1,0 +1,99 @@
+@namespace PedidoMercaderia.Components
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Web
+@using PedidoMercaderia.Models
+
+<button id="@Id" type="button" class="selector-control @Clase" disabled="@Deshabilitado"
+        aria-label="@($"{Etiqueta}: {TextoSeleccionado}")" aria-haspopup="dialog"
+        aria-expanded="@(abierto ? "true" : "false")" aria-controls="@(Id + "-panel")"
+        @onclick="Abrir" @onkeydown="TeclaBoton">
+    <span>@TextoSeleccionado</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+</button>
+<PopoverAnclado Id="@(Id + "-panel")" AnclaId="@Id" Abierto="@abierto" AlCerrar="Cerrar"
+                Titulo="@($"Seleccionar {Etiqueta}")" Clase="selector-popover" OpcionActivaId="@IdActivo">
+    @if (abierto)
+    {
+        <div class="selector-search">
+            <label class="visually-hidden" for="@(Id + "-buscar")">Buscar en @Etiqueta</label>
+            <input id="@(Id + "-buscar")" class="form-control" type="search" role="combobox" autocomplete="off"
+                   placeholder="Escribe para buscar…" data-autofocus="true" aria-expanded="true"
+                   aria-controls="@(Id + "-lista")" aria-activedescendant="@IdActivo" aria-autocomplete="list"
+                   value="@busqueda" @oninput="Buscar" @onkeydown="TeclaBusqueda" />
+        </div>
+        <div id="@(Id + "-lista")" class="selector-options" role="listbox" aria-label="@Etiqueta">
+            @for (var indice = 0; indice < Math.Min(limite, coincidencias.Count); indice++)
+            {
+                var posicion = indice;
+                var opcion = coincidencias[indice];
+                <button id="@(Id + "-opcion-" + indice)" @key="opcion.Valor" type="button" role="option" tabindex="-1"
+                        class="selector-option @(activo == indice ? "is-active" : "") @(opcion.Valor == Valor ? "is-selected" : "")"
+                        aria-selected="@(opcion.Valor == Valor ? "true" : "false")" @onclick="() => Elegir(posicion)">
+                    <span>@opcion.Texto</span>@if (opcion.Valor == Valor) { <span aria-hidden="true">✓</span> }
+                </button>
+            }
+        </div>
+        @if (coincidencias.Count == 0) { <p class="selector-empty" role="status">No hay opciones con esa búsqueda.</p> }
+        <div class="selector-footer">
+            @if (coincidencias.Count > limite) { <button type="button" class="btn btn-link btn-sm" @onclick="() => limite += 80">Mostrar más (@limite de @coincidencias.Count)</button> }
+            else { <small>@coincidencias.Count @(coincidencias.Count == 1 ? "opción" : "opciones")</small> }
+            <button type="button" class="btn btn-light btn-sm" @onclick="Cerrar">Cerrar</button>
+        </div>
+    }
+</PopoverAnclado>
+
+@code {
+    [Parameter] public string Id { get; set; } = "selector-" + Guid.NewGuid().ToString("N");
+    [Parameter, EditorRequired] public string Etiqueta { get; set; } = "Opciones";
+    [Parameter] public string Valor { get; set; } = "";
+    [Parameter] public EventCallback<string> ValorChanged { get; set; }
+    [Parameter, EditorRequired] public IEnumerable<OpcionSelector> Opciones { get; set; } = [];
+    [Parameter] public string Placeholder { get; set; } = "Seleccionar…";
+    [Parameter] public string Clase { get; set; } = "";
+    [Parameter] public bool Deshabilitado { get; set; }
+    private List<OpcionSelector> opciones = [], coincidencias = [];
+    private string busqueda = "";
+    private bool abierto;
+    private int activo, limite = 80;
+    private string TextoSeleccionado => opciones.FirstOrDefault(o => o.Valor == Valor)?.Texto ?? Placeholder;
+    private string? IdActivo => abierto && coincidencias.Count > 0 ? $"{Id}-opcion-{activo}" : null;
+
+    protected override void OnParametersSet()
+    {
+        var nuevas = Opciones.ToList();
+        if (!opciones.SequenceEqual(nuevas)) { opciones = nuevas; Filtrar(); }
+        if (Deshabilitado) abierto = false;
+    }
+    private void Abrir()
+    {
+        if (Deshabilitado) return;
+        if (abierto) { Cerrar(); return; }
+        busqueda = ""; limite = 80; Filtrar(); abierto = true;
+        activo = Math.Max(0, coincidencias.FindIndex(o => o.Valor == Valor));
+        limite = Math.Max(limite, activo + 1);
+    }
+    private void Cerrar() => abierto = false;
+    private void Buscar(ChangeEventArgs e) { busqueda = e.Value?.ToString() ?? ""; limite = 80; Filtrar(); }
+    private void Filtrar()
+    {
+        coincidencias = opciones.Where(o => CultureInfo.CurrentCulture.CompareInfo.IndexOf(o.Texto, busqueda.Trim(), CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace) >= 0).ToList();
+        activo = 0;
+    }
+    private async Task Elegir(int indice)
+    {
+        if (indice < 0 || indice >= coincidencias.Count || Deshabilitado) return;
+        var valor = coincidencias[indice].Valor;
+        abierto = false;
+        await ValorChanged.InvokeAsync(valor);
+    }
+    private void TeclaBoton(KeyboardEventArgs e) { if (e.Key is "ArrowDown" or "ArrowUp") Abrir(); }
+    private async Task TeclaBusqueda(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") { await Elegir(activo); return; }
+        if (e.Key == "Escape") { Cerrar(); return; }
+        if (e.Key is "ArrowDown" or "ArrowUp")
+        {
+            activo = Math.Clamp(activo + (e.Key == "ArrowDown" ? 1 : -1), 0, Math.Max(0, coincidencias.Count - 1));
+            limite = Math.Max(limite, activo + 1);
+        }
+    }
+}

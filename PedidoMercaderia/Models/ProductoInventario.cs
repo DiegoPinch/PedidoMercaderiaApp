@@ -42,6 +42,13 @@ namespace PedidoMercaderia.Models
                 : 0;
         }
 
+        public ProductoInventario CopiarSinExistencias()
+        {
+            var copia = (ProductoInventario)MemberwiseClone();
+            copia.Existencias = new(StringComparer.OrdinalIgnoreCase);
+            return copia;
+        }
+
         public decimal ObtenerStockOrigen(IEnumerable<string> bodegas)
         {
             return bodegas.Sum(ObtenerStock);

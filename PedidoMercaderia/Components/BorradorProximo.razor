@@ -1,0 +1,49 @@
+@namespace PedidoMercaderia.Components
+@using PedidoMercaderia.Services
+@using PedidoMercaderia.Models
+@inject PedidoService Pedido
+@inject InventarioService Inventario
+
+<section class="draft-panel ui-card mt-3">
+    <div class="module-section-title"><h2 class="h5">Borrador para el próximo pedido</h2><span class="module-badge">@Pedido.TotalProductos @(Pedido.TotalProductos == 1 ? "producto" : "productos")</span></div>
+    <p class="small text-muted">Anota lo que te soliciten durante la semana. Se guarda para tu equipo; al cargar el próximo Excel confirmarás cantidades y bodegas.</p>
+    <label for="buscarProximo" class="form-label small">Buscar producto por código o descripción</label>
+    <input id="buscarProximo" type="search" class="form-control form-control-sm" placeholder="Escribe al menos 2 caracteres" @bind="busqueda" @bind:event="oninput" />
+    @if (busqueda.Trim().Length >= 2)
+    {
+        <div class="ui-table-wrap draft-results mt-2"><table class="table table-sm"><caption class="visually-hidden">Coincidencias del catálogo para anotar en el próximo pedido</caption><tbody>
+        @foreach (var p in Coincidencias)
+        {
+            <tr><td class="ui-product"><strong>@p.Codigo</strong><small>@p.Descripcion</small></td><td><button class="btn btn-outline-primary btn-sm" disabled="@Pedido.Contiene(p.Codigo)" @onclick="() => Anotar(p)">@(Pedido.Contiene(p.Codigo) ? "Anotado" : "Anotar")</button></td></tr>
+        }
+        @if (!Coincidencias.Any()) { <tr><td>No hay coincidencias en el catálogo cargado.</td></tr> }
+        </tbody></table></div>
+    }
+    @if (Pedido.TotalProductos > 0)
+    {
+        <div class="ui-table-wrap mt-3"><table class="table table-sm align-middle draft-table"><thead><tr><th scope="col">Código / descripción</th><th scope="col">Cantidad</th><th scope="col">Comentario</th><th scope="col"><span class="visually-hidden">Acciones</span></th></tr></thead><tbody>
+        @foreach (var item in Pedido.Items.OrderBy(i => i.CodigoProducto))
+        {
+            <tr @key="item.CodigoProducto"><td class="ui-product"><strong>@item.CodigoProducto</strong><small>@item.DescripcionProducto</small></td>
+                <td><input class="form-control form-control-sm draft-quantity" aria-label="@($"Cantidad de {item.CodigoProducto}")" type="number" min="0.01" step="any" value="@item.CantidadSolicitada.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="e => Cantidad(item, e)" /></td>
+                <td><input class="form-control form-control-sm" placeholder="Comentario opcional" aria-label="@($"Comentario de {item.CodigoProducto}")" maxlength="300" @bind="item.Comentario" @bind:event="oninput" @bind:after="Pedido.NotificarCambio" /></td>
+                <td><button class="btn btn-link btn-sm" @onclick="() => Pedido.Quitar(item.CodigoProducto)">Quitar</button></td></tr>
+        }
+        </tbody></table></div>
+    }
+    else { <p class="ui-empty mb-0">Todavía no has anotado productos. Busca un código para comenzar.</p> }
+    @if (error is not null) { <p class="text-danger small" role="alert">@error</p> }
+</section>
+@code {
+    private string busqueda = "";
+    private string? error;
+    private IEnumerable<ProductoInventario> Coincidencias => Inventario.Productos.Where(p =>
+        p.Codigo.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase) || p.Descripcion.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase)).Take(20);
+    private void Anotar(ProductoInventario producto) { Pedido.Anotar(producto, 1); busqueda = ""; }
+    private void Cantidad(ItemPedido item, ChangeEventArgs e)
+    {
+        if (!decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cantidad) || cantidad <= 0)
+        { error = "Escribe una cantidad mayor que cero."; return; }
+        item.CantidadSolicitada = cantidad; item.RequiereRevision = true; error = null; Pedido.NotificarCambio();
+    }
+}

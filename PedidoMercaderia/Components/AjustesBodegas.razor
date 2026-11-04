@@ -1,0 +1,77 @@
+@namespace PedidoMercaderia.Components
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@using System.Text.Json
+@inject ConfiguracionService Configuracion
+@inject TrabajoService Trabajo
+
+<div class="warehouse-settings">
+<h2 class="h5">¿Desde dónde vas a pedir?</h2>
+<p class="ui-help">Elige tu sucursal y los centros a los que puedes solicitar mercadería.</p>
+@if (edicion.NombresBodegas.Count == 0)
+{
+    <div class="alert alert-info">Primero <a href="importar">carga el inventario</a> para detectar sus productos y bodegas.</div>
+}
+else
+{
+    @if (mensaje is not null) { <div class="alert alert-info" role="status">@mensaje</div> }
+    <fieldset disabled="@(guardando || Trabajo.Usuario?.Rol != "Administrador")">
+        <label class="form-label" for="sucursal">Sucursal de este equipo</label>
+        <SelectorBuscable Id="sucursal" Clase="mb-3" Etiqueta="Sucursal de este equipo" Valor="@edicion.BodegaLocal"
+            ValorChanged="v => CambiarSucursal(new ChangeEventArgs { Value = v })"
+            Opciones="@edicion.NombresBodegas.Select(b => new OpcionSelector(b.Key, $"{b.Key} · {b.Value}")).Prepend(new OpcionSelector("", "Seleccionar…"))" />
+
+        @if (edicion.NombresBodegas.ContainsKey(edicion.BodegaLocal))
+        {
+            <label class="form-label" for="nombreSucursal">Nombre de tu sucursal</label>
+            <input id="nombreSucursal" class="form-control mb-3" maxlength="100" @bind="edicion.NombresBodegas[edicion.BodegaLocal]" placeholder="Ejemplo: Ambato" />
+        }
+        <label class="form-label" for="agregarCentro">Pedir mercadería a</label>
+        <SelectorBuscable Id="agregarCentro" Clase="mb-3" Etiqueta="Pedir mercadería a" Valor="" Placeholder="Agregar un centro…"
+            ValorChanged="v => AgregarCentro(new ChangeEventArgs { Value = v })"
+            Opciones="@edicion.NombresBodegas.Where(b => b.Key != edicion.BodegaLocal && !edicion.BodegasOrigen.Contains(b.Key)).Select(b => new OpcionSelector(b.Key, $"{b.Key} · {b.Value}"))" />
+        @foreach (var codigo in edicion.OrigenesHabilitados.ToList())
+        {
+            <div class="input-group input-group-sm mb-2" @key="codigo">
+                <span class="input-group-text">@codigo</span>
+                <input class="form-control" maxlength="100" aria-label="Nombre del centro @codigo" @bind="edicion.NombresBodegas[codigo]" />
+                <button class="btn btn-outline-secondary" aria-label="Quitar centro @codigo" @onclick="() => edicion.BodegasOrigen.Remove(codigo)">Quitar</button>
+            </div>
+        }
+        <details class="mt-3"><summary class="small">Editar nombres de otras bodegas</summary>
+            <div class="mt-2" style="max-height:240px;overflow:auto">
+                @foreach (var codigo in edicion.NombresBodegas.Keys.Where(c => c != edicion.BodegaLocal && !edicion.BodegasOrigen.Contains(c)).ToList())
+                {
+                    <div class="input-group input-group-sm mb-2"><span class="input-group-text">@codigo</span>
+                        <input class="form-control" maxlength="100" aria-label="Nombre de @codigo" @bind="edicion.NombresBodegas[codigo]" /></div>
+                }
+            </div>
+        </details>
+        <button class="btn btn-primary mt-3" @onclick="Guardar">@(guardando ? "Guardando…" : "Guardar selección")</button>
+    </fieldset>
+}
+</div>
+@code {
+    private ConfiguracionBodegas edicion = new();
+    private string? mensaje;
+    private bool guardando;
+    protected override void OnInitialized()
+    {
+        edicion = JsonSerializer.Deserialize<ConfiguracionBodegas>(JsonSerializer.Serialize(Configuracion.Actual))!;
+        edicion.BodegasOrigen.IntersectWith(edicion.NombresBodegas.Keys);
+        if (!edicion.NombresBodegas.ContainsKey(edicion.BodegaLocal)) edicion.BodegaLocal = "";
+    }
+    private void CambiarSucursal(ChangeEventArgs e) { edicion.BodegaLocal = e.Value?.ToString() ?? ""; edicion.BodegasOrigen.Remove(edicion.BodegaLocal); }
+    private void AgregarCentro(ChangeEventArgs e)
+    {
+        var codigo = e.Value?.ToString() ?? "";
+        if (codigo != edicion.BodegaLocal && edicion.NombresBodegas.ContainsKey(codigo)) edicion.BodegasOrigen.Add(codigo);
+    }
+    private async Task Guardar()
+    {
+        guardando = true; mensaje = null;
+        try { await Configuracion.GuardarCompartido!(edicion); mensaje = "Bodegas guardadas. Ya puedes preparar el pedido."; }
+        catch (Exception ex) { mensaje = ex.Message; }
+        finally { guardando = false; }
+    }
+}

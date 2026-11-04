@@ -1,0 +1,53 @@
+@using PedidoMercaderia.Services
+@inject TrabajoService Trabajo
+@implements IDisposable
+
+@if (Trabajo.Usuario is { } usuario)
+{
+    <section class="app-account" aria-label="Tu cuenta y cambios del pedido">
+        <div class="sesion-persona">
+            <span class="sesion-avatar" aria-hidden="true">@usuario.Nombre.Trim().FirstOrDefault()</span>
+            <div><strong>@usuario.Nombre</strong><small>@(usuario.Rol == "Administrador" ? "Administrador" : "Mi cuenta")</small></div>
+        </div>
+        <p class="sesion-estado @(Trabajo.ErrorGuardado is not null ? "con-error" : "")" role="status">
+            <span aria-hidden="true"></span>@(Trabajo.Guardando ? "Guardando cambios…" : Trabajo.ErrorGuardado is not null ? "Cambios sin guardar" : Trabajo.Ocupado ? "Actualizando…" : "Cambios guardados")
+        </p>
+        <button type="button" class="sesion-actualizar" disabled="@Bloqueado" @onclick="Actualizar" aria-describedby="ayudaActualizar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5M4 17a8 8 0 0 0 14 2l3-3m0 5v-5h-5" /></svg>
+            @(Trabajo.Ocupado ? "Actualizando…" : "Actualizar pedido")
+        </button>
+        <p id="ayudaActualizar" class="sesion-ayuda">Consulta los cambios de tus compañeros.</p>
+        <div class="sesion-enlaces">
+            @if (usuario.Rol == "Administrador") { <a href="usuarios">Gestionar usuarios <span aria-hidden="true">›</span></a> }
+            <button type="button" disabled="@Bloqueado" @onclick="Salir">Cerrar sesión <span aria-hidden="true">→</span></button>
+        </div>
+        @if (error is not null) { <p class="sesion-error" role="alert">@error</p> }
+        @if (Trabajo.ErrorGuardado is not null)
+        {
+            <div class="sesion-conflicto" role="alert">
+                <p>@Trabajo.ErrorGuardado</p>
+                <button disabled="@Bloqueado" @onclick="Trabajo.Reintentar">Reintentar guardar</button>
+                <label><input type="checkbox" @bind="descartar" /> Reemplazar mis cambios sin guardar por la versión guardada en el servidor.</label>
+                <button disabled="@(!descartar || Bloqueado)" @onclick="Descartar">Cargar versión guardada</button>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private bool descartar;
+    private string? error;
+    private bool Bloqueado => Trabajo.Guardando || Trabajo.Ocupado;
+    protected override void OnInitialized() => Trabajo.Cambiado += Cambio;
+    private void Cambio() => _ = InvokeAsync(StateHasChanged);
+    private async Task Ejecutar(Func<Task> accion)
+    {
+        error = null;
+        try { await accion(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private Task Actualizar() => Ejecutar(() => Trabajo.Actualizar());
+    private Task Salir() => Ejecutar(Trabajo.Salir);
+    private Task Descartar() => Ejecutar(async () => { await Trabajo.Actualizar(true); descartar = false; });
+    public void Dispose() => Trabajo.Cambiado -= Cambio;
+}

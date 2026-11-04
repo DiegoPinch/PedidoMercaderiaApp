@@ -1,47 +1,23 @@
-﻿
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">
-            Pedidos de mercadería
-        </a>
-    </div>
+﻿@using PedidoMercaderia.Services
+@inject TrabajoService Trabajo
+@inject ConfiguracionService Configuracion
+<div class="app-brand-row">
+    <a class="app-brand" href="importar">
+        <span class="app-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8M12 13v9M7.5 5.5l9 5" /></svg></span>
+        <span>Pedidos<small>Gestión de mercadería</small></span>
+    </a>
+    <button type="button" class="app-menu-toggle" aria-label="Mostrar u ocultar menú" aria-expanded="@(menuAbierto ? "true" : "false")" aria-controls="menuPedidos" @onclick="() => menuAbierto = !menuAbierto">@(menuAbierto ? "Cerrar" : "Menú")</button>
 </div>
-
-<input type="checkbox"
-       title="Navigation menu"
-       class="navbar-toggler" />
-
-<div class="nav-scrollable">
-    <nav class="flex-column">
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link"
-                     href=""
-                     Match="NavLinkMatch.All">
-                Inicio
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link"
-                     href="importar">
-                Importar inventario
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link"
-                     href="pedido">
-                Preparar pedido
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link"
-                     href="configuracion">
-                Configuración de bodegas
-            </NavLink>
-        </div>
-
-    </nav>
+<div id="menuPedidos" class="app-navigation @(menuAbierto ? "is-open" : "")">
+<nav class="app-menu" aria-label="Menú principal" @onclick="() => menuAbierto = false">
+    <span class="app-menu-label">MI ESPACIO</span>
+    <NavLink class="app-menu-link" href="importar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM4 10h16M10 10v10M9 7h6" /></svg>Inventario</NavLink>
+    @if (Trabajo.Estado.Inventario is not null && Configuracion.EstaConfigurado)
+    {
+        <NavLink class="app-menu-link" href="pedido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5H5v16h14V5h-3M8 3h8v4H8zM8 12h8M8 16h5" /></svg>Preparar pedido</NavLink>
+        <NavLink class="app-menu-link" href="resumen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2" /></svg>Historial de pedidos</NavLink>
+    }
+</nav>
+<PanelSesion />
 </div>
+@code { private bool menuAbierto; }

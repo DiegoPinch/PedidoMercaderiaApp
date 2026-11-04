@@ -1,0 +1,56 @@
+@page "/usuarios"
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@inject TrabajoService Trabajo
+<PageTitle>Usuarios del equipo</PageTitle>
+<div class="module-page">
+<header class="module-header"><div><span class="module-eyebrow">ADMINISTRACIÓN</span><h1>Usuarios del equipo</h1>
+<p>Cuentas individuales para colaborar en los pedidos de la sucursal.</p></div></header>
+@if (Trabajo.Usuario?.Rol != "Administrador") { <p>Solo la cuenta administradora puede crear usuarios.</p> }
+else
+{
+    @if (mensaje is not null) { <p class="alert @(esError ? "alert-danger" : "alert-success")" role="status">@mensaje</p> }
+    <div class="users-layout">
+    <section class="ui-card"><h2>Crear colaborador</h2><p class="ui-help">Comparte el trabajo con una cuenta para cada persona.</p>
+    <form @onsubmit="Crear" @onsubmit:preventDefault>
+        <fieldset disabled="@ocupado">
+            <label class="form-label" for="nuevoUsuario">Usuario</label><input id="nuevoUsuario" class="form-control mb-3" required maxlength="40" @bind="usuario" autocomplete="off" placeholder="Ej. maria.ambato" />
+            <label class="form-label" for="nuevoNombre">Nombre</label><input id="nuevoNombre" class="form-control mb-3" required maxlength="80" @bind="nombre" placeholder="Nombre y apellido" />
+            <label class="form-label" for="nuevaClave">Contraseña</label><input id="nuevaClave" class="form-control" type="password" required minlength="10" maxlength="128" @bind="clave" autocomplete="new-password" aria-describedby="ayudaClave" />
+            <p id="ayudaClave" class="ui-help mt-2">Mínimo 10 caracteres.</p>
+            <button class="btn btn-primary w-100 mt-2" type="submit">@(ocupado ? "Creando…" : "Crear colaborador")</button>
+        </fieldset>
+    </form>
+    </section>
+    <section class="ui-card"><div class="module-section-title"><h2>Personas con acceso</h2><span class="module-badge">@usuarios.Count</span></div>
+    <label class="visually-hidden" for="buscarUsuario">Buscar usuario o nombre</label><input id="buscarUsuario" class="form-control mb-3" type="search" placeholder="Buscar usuario o nombre…" @bind="busqueda" @bind:event="oninput" />
+    <div class="ui-table-wrap"><table class="table"><thead><tr><th>Usuario</th><th>Nombre</th><th>Acceso</th></tr></thead><tbody>
+        @foreach (var u in UsuariosVisibles) { <tr><td><strong>@u.Usuario</strong></td><td>@u.Nombre</td><td><span class="ui-status">@u.Rol</span></td></tr> }
+        @if (cargando) { <tr><td colspan="3" class="ui-empty" role="status">Cargando usuarios…</td></tr> }
+        else if (!UsuariosVisibles.Any()) { <tr><td colspan="3" class="ui-empty">@(esError ? "No se pudo cargar la lista de usuarios." : "No hay usuarios que coincidan con la búsqueda.")</td></tr> }
+    </tbody></table></div>
+    </section></div>
+}
+</div>
+@code {
+    private List<UsuarioSesion> usuarios = new();
+    private string usuario = "", nombre = "", clave = "", busqueda = "";
+    private string? mensaje;
+    private bool ocupado, cargando, esError;
+    private IEnumerable<UsuarioSesion> UsuariosVisibles => usuarios.Where(u => u.Usuario.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase) || u.Nombre.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase));
+    protected override async Task OnInitializedAsync()
+    {
+        if (Trabajo.Usuario?.Rol != "Administrador") return;
+        cargando = true;
+        try { usuarios = await Trabajo.Usuarios() ?? new(); }
+        catch (Exception ex) { esError = true; mensaje = ex.Message; }
+        finally { cargando = false; }
+    }
+    private async Task Crear()
+    {
+        ocupado = true; mensaje = null; esError = false;
+        try { await Trabajo.CrearUsuario(new(usuario, nombre, clave)); usuario = nombre = clave = ""; usuarios = await Trabajo.Usuarios() ?? new(); mensaje = "Colaborador creado."; }
+        catch (Exception ex) { esError = true; mensaje = ex.Message; }
+        finally { ocupado = false; }
+    }
+}

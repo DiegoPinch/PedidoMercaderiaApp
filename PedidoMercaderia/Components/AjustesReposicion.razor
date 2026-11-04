@@ -1,0 +1,37 @@
+@namespace PedidoMercaderia.Components
+@using System.Text.Json
+@using PedidoMercaderia.Models
+@using PedidoMercaderia.Services
+@inject ConfiguracionService Configuracion
+@inject TrabajoService Trabajo
+
+<details class="border rounded p-3 mb-3">
+    <summary>Cómo recomendar mi pedido</summary>
+    <p class="small mt-2">Calcula cantidades para cubrir el tiempo hasta el próximo abastecimiento. Revisa estos plazos según tu sucursal.</p>
+    <fieldset disabled="@guardando">
+        <div class="row g-2">
+            <div class="col-sm-4"><label class="form-label" for="diasPedidos">Pido cada (días)</label><input id="diasPedidos" type="number" min="1" max="90" class="form-control form-control-sm" @bind="edicion.Reposicion.DiasEntrePedidos" /></div>
+            <div class="col-sm-4"><label class="form-label" for="diasTraslado">El traslado tarda (días)</label><input id="diasTraslado" type="number" min="0" max="90" class="form-control form-control-sm" @bind="edicion.Reposicion.DiasTraslado" /></div>
+            <div class="col-sm-4"><label class="form-label" for="diasMargen">Margen adicional (días)</label><input id="diasMargen" type="number" min="0" max="30" class="form-control form-control-sm" @bind="edicion.Reposicion.DiasMargen" /></div>
+        </div>
+        <label class="small d-block my-2"><input type="checkbox" @bind="edicion.Reposicion.UsarTendencia" /> Usar tendencias cuando exista suficiente historial</label>
+        <button class="btn btn-outline-primary btn-sm" @onclick="Guardar">@(guardando ? "Calculando…" : "Guardar y recalcular")</button>
+    </fieldset>
+    @if (error is not null) { <p class="text-danger small mt-2" role="alert">@error</p> }
+    <p class="small text-muted mt-3 mb-1">Se conservan hasta 26 observaciones numéricas por producto de tu sucursal. Con pocos datos se usa la bajada reciente; las existencias no distinguen ventas de transferencias.</p>
+    <p class="small mb-0">Decisiones registradas al guardar pedidos: @Trabajo.Estado.Aprendizaje.Aceptadas aceptadas · @Trabajo.Estado.Aprendizaje.Ajustadas con cantidad ajustada · @Trabajo.Estado.Aprendizaje.Excepcionales excepcionales. Hasta 26 decisiones por producto; no mide ventas.</p>
+</details>
+
+@code {
+    private ConfiguracionBodegas edicion = new();
+    private bool guardando;
+    private string? error;
+    protected override void OnInitialized() => edicion = JsonSerializer.Deserialize<ConfiguracionBodegas>(JsonSerializer.Serialize(Configuracion.Actual))!;
+    private async Task Guardar()
+    {
+        guardando = true; error = null;
+        try { edicion.Reposicion.Validar(); await Configuracion.GuardarCompartido!(edicion); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { guardando = false; }
+    }
+}

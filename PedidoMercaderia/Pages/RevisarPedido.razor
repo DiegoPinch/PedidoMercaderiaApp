@@ -1,14 +1,17 @@
-@page "/pedido"
+﻿@page "/pedido"
 @using System.Globalization
 @using System.Text.Json
 @using Microsoft.JSInterop
 @using PedidoMercaderia.Models
 @using PedidoMercaderia.Services
+@using PedidoMercaderia.Components
 @inject InventarioService Inventario
 @inject ConfiguracionService Configuracion
 @inject PedidoService Pedido
 @inject ActividadService Actividad
 @inject IJSRuntime JS
+@inject TrabajoService Trabajo
+@inject NavigationManager Navegacion
 
 <PageTitle>Preparar pedido</PageTitle>
 
@@ -16,11 +19,11 @@
     <header class="pedido-header">
         <div>
             <h1>Preparar pedido</h1>
-            <p>Revisa lo que tienes y agrega lo que necesitas de Matriz o Ebenezer.</p>
+            <p>Revisa lo que tienes y agrega lo que necesitas de los centros seleccionados.</p>
         </div>
         @if (Inventario.TieneInventario)
         {
-            <span class="pedido-resumen">@Pedido.TotalProductos productos en tu pedido</span>
+            <span class="pedido-resumen">@Pedido.TotalProductos @(Pedido.TotalProductos == 1 ? "producto" : "productos") en tu pedido</span>
         }
     </header>
 
@@ -32,28 +35,67 @@
     else if (!Configuracion.EstaConfigurado)
     {
         <div class="alert alert-warning">Selecciona de qué bodegas vas a pedir.</div>
-        <a href="configuracion" class="btn btn-primary">Elegir bodegas</a>
+        <a href="importar" class="btn btn-primary">Elegir bodegas</a>
+    }
+    else if (Trabajo.Estado.Corte is not null && !Trabajo.Estado.PedidoAbierto)
+    {
+        <section class="border rounded p-3">
+            <h2 class="h5">@(Trabajo.Estado.Corte.Estado == "Cerrado" ? "Pedido guardado" : "Preparación anulada")</h2>
+            <p>Para preparar un nuevo pedido, carga un Excel actualizado.</p>
+            <a class="btn btn-primary btn-sm" href="importar">Cargar nuevo inventario</a>
+            <a class="btn btn-outline-primary btn-sm ms-2" href="resumen">Ver historial y descargar pedidos</a>
+        </section>
+        <BorradorProximo />
     }
     else
     {
         var productos = ObtenerFiltrados();
+        int totalRecomendados = RecomendadosParaAgregar().Count;
         int totalPaginas = Math.Max(1, (int)Math.Ceiling(productos.Count / (double)TamanoPagina));
         pagina = Math.Clamp(pagina, 1, totalPaginas);
         var productosPagina = productos.Skip((pagina - 1) * TamanoPagina).Take(TamanoPagina).ToList();
 
+        @if (Trabajo.Estado.Corte is CorteResumen corte)
+        {
+            <section class="inventory-context border rounded p-3 mb-3" aria-label="Reposición según el último inventario">
+                <p class="small mb-2">Stock del último Excel: <strong>@corte.Archivo · @corte.Fecha.ToString("dd/MM/yyyy")</strong>.
+                    @if (Trabajo.Estado.Cortes.Count > 1)
+                    { <span>Comparado con @Trabajo.Estado.Cortes[1].Fecha.ToString("dd/MM/yyyy").</span> }
+                </p>
+                @if (Trabajo.Estado.Cortes.Count > 1)
+                {
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button class="btn btn-primary btn-sm" disabled="@(generando || totalRecomendados == 0)" @onclick="GenerarBorrador">@(generando ? "Guardando…" : $"Generar borrador ({totalRecomendados})")</button>
+                        <button class="btn btn-link btn-sm" @onclick="MostrarNuevos">Ver productos nuevos</button>
+                    </div>
+                    <p class="small text-muted mt-2 mb-0">Sugiere reposiciones de todas las marcas según las bajadas y la cobertura configurada. Conserva lo que ya agregaste. Una bajada puede ser venta, transferencia o ajuste.</p>
+                }
+                else
+                { <p class="small text-muted mb-0">Este Excel es la base. Ya puedes pedir; el próximo Excel permitirá comparar existencias y recomendar reposiciones.</p> }
+            </section>
+        }
+        <div class="pedido-ajustes">
+            <ReporteMovimientos AlCambiar="ReporteActualizado" />
+            <AjustesReposicion />
+        </div>
+
         <nav class="pedido-vistas" aria-label="Listas del pedido">
+            @if (Trabajo.Estado.Cortes.Count > 1)
+            { <button class="btn @(vista == "Recomendados" ? "btn-primary" : "btn-outline-secondary")" aria-pressed="@(vista == "Recomendados")" @onclick="MostrarRecomendados">Recomendados (@totalRecomendados)</button> }
             <button class="btn @(vista == "Oportunidades" ? "btn-primary" : "btn-outline-secondary")"
                     aria-pressed="@(vista == "Oportunidades")" @onclick="MostrarOportunidades">Por revisar</button>
             <button class="btn @(vista == "Mi pedido" ? "btn-primary" : "btn-outline-secondary")"
                     aria-pressed="@(vista == "Mi pedido")" @onclick="MostrarMiPedido">Mi pedido (@Pedido.TotalProductos)</button>
+            <button class="btn @(vista == "Nuevos" ? "btn-primary" : "btn-outline-secondary")" @onclick="MostrarNuevos">Nuevos (@nuevos.Count)</button>
             <details class="otras-listas" @key="vista">
                 <summary>Otras listas</summary>
                 <div class="otras-listas-menu">
                     <button class="btn btn-sm btn-light" @onclick="MostrarCatalogo">Todo el inventario</button>
                     <button class="btn btn-sm btn-light" @onclick="MostrarOmitidos">Omitidos por ahora (@Pedido.Omitidos.Count)</button>
                     <button class="btn btn-sm btn-light" @onclick="MostrarExcluidos">No se venden</button>
+                    <button class="btn btn-sm btn-light" @onclick="MostrarDudosos">Sugerencias para revisar (@evaluaciones.Values.Count(p => !p.Rapido && p.Tipo != "Nuevo" && p.Cantidad > 0))</button>
                     @if (Actividad.TieneReporte)
-                    { <button class="btn btn-sm btn-light" @onclick="MostrarSinMovimiento">Sin movimiento en B4</button> }
+                    { <button class="btn btn-sm btn-light" @onclick="MostrarSinMovimiento">Sin movimiento en tu sucursal</button> }
                 </div>
             </details>
         </nav>
@@ -72,12 +114,11 @@
                 </div>
                 <div class="busqueda-marca">
                     <label for="marcaPedido">Marca</label>
-                    <select id="marcaPedido" class="form-select" value="@marcaSeleccionada" @onchange="CambiarMarca">
-                        <option value="">Todas las marcas</option>
-                        @foreach (var marca in marcas) { <option value="@marca">@marca</option> }
-                    </select>
+                    <SelectorBuscable Id="marcaPedido" Etiqueta="Marca" Valor="@marcaSeleccionada"
+                        ValorChanged="v => CambiarMarca(new ChangeEventArgs { Value = v })"
+                        Opciones="@marcas.Select(m => new OpcionSelector(m, m)).Prepend(new OpcionSelector("", "Todas las marcas"))" />
                 </div>
-                @if (vista == "Oportunidades")
+                @if (vista is "Oportunidades" or "Recomendados")
                 {
                     <label class="solo-agotados" for="soloAgotados">
                         <input id="soloAgotados" type="checkbox" class="form-check-input"
@@ -87,7 +128,7 @@
                 }
             </div>
 
-            @if (vista == "Oportunidades" || vista == "Sin movimiento")
+            @if (vista is "Oportunidades" or "Recomendados" or "Sin movimiento")
             {
                 @if (Actividad.Actual is ReporteActividad reporte)
                 {
@@ -97,22 +138,14 @@
                                    checked="@filtros.ApartarSinMovimiento" @onchange="CambiarFiltroActividad" />
                             Apartar productos con stock y sin movimiento durante
                         </label>
-                        <select class="form-select form-select-sm actividad-plazo" aria-label="Días sin movimiento"
-                                value="@filtros.DiasSinMovimiento" @onchange="CambiarDiasActividad">
-                            <option value="30">30 días</option>
-                            <option value="90">90 días</option>
-                            <option value="180">180 días (aprox. 6 meses)</option>
-                            <option value="365">365 días (aprox. 1 año)</option>
-                        </select>
+                        <SelectorBuscable Etiqueta="Días sin movimiento" Clase="actividad-plazo" Valor="@filtros.DiasSinMovimiento.ToString()"
+                            ValorChanged="v => CambiarDiasActividad(new ChangeEventArgs { Value = v })"
+                            Opciones="@(new OpcionSelector[] { new("30", "30 días"), new("90", "90 días"), new("180", "180 días (aprox. 6 meses)"), new("365", "365 días (aprox. 1 año)") })" />
                         <button class="btn btn-link btn-sm" @onclick="MostrarSinMovimiento">Ver lista</button>
                         <small>Datos al @reporte.FechaReporte.ToString("dd/MM/yyyy"). Incluyen ventas y transferencias.
                             Los agotados, los productos sin información y tu pedido actual se conservan.
-                            <a href="importar">Cambiar reporte</a></small>
+</small>
                     </div>
-                }
-                else
-                {
-                    <div class="mt-3 small"><a href="importar">Cargar reporte de movimientos de B4 para reducir la revisión</a></div>
                 }
             }
 
@@ -122,22 +155,21 @@
                     <div class="opciones-grid">
                         <div>
                             <label for="grupoPedido">Grupo de productos</label>
-                            <select id="grupoPedido" class="form-select" value="@grupoSeleccionado" @onchange="CambiarGrupo">
-                                <option value="">Todos los grupos</option>
-                                @foreach (var grupo in grupos) { <option value="@grupo">@grupo</option> }
-                            </select>
+                            <SelectorBuscable Id="grupoPedido" Etiqueta="Grupo de productos" Valor="@grupoSeleccionado"
+                                ValorChanged="v => CambiarGrupo(new ChangeEventArgs { Value = v })"
+                                Opciones="@grupos.Select(g => new OpcionSelector(g, g)).Prepend(new OpcionSelector("", "Todos los grupos"))" />
                         </div>
                         <div>
                             <label for="cantidadInicial">Empezar cada producto con</label>
                             <input id="cantidadInicial" type="number" min="0" step="any" class="form-control" @bind="opciones.CantidadInicial" />
-                            <small>Rellena la casilla «Pedir». Puedes cambiarla en cada producto.</small>
+                            <small>Para productos sin recomendación. Las reposiciones usan la cantidad sugerida, que puedes editar.</small>
                         </div>
                         <div>
                             <label for="reservaPedido">Dejar en cada bodega</label>
                             <input id="reservaPedido" type="number" min="0" step="any" class="form-control" @bind="opciones.ReservaCentro" />
                             <small>Si hay 100 y dejas 1, puedes pedir 99. Usa 0 para poder pedir todo.</small>
                         </div>
-                        @if (vista == "Oportunidades")
+                        @if (vista is "Oportunidades" or "Recomendados")
                         {
                             <div>
                                 <label for="minimoPedido">Mostrar si puedo pedir al menos</label>
@@ -146,10 +178,8 @@
                             </div>
                             <div>
                                 <label for="ordenPedido">Mostrar primero</label>
-                                <select id="ordenPedido" class="form-select" @bind="opciones.Orden">
-                                    <option value="local">Los que menos tengo</option>
-                                    <option value="centro">Los que más hay para pedir</option>
-                                </select>
+                                <SelectorBuscable Id="ordenPedido" Etiqueta="Mostrar primero" @bind-Valor="opciones.Orden"
+                                    Opciones="@(new OpcionSelector[] { new("local", "Los que menos tengo"), new("centro", "Los que más hay para pedir") })" />
                             </div>
                         }
                     </div>
@@ -161,10 +191,10 @@
                     </div>
                 </div>
             </details>
-            @if (vista == "Oportunidades" && (filtros.UsarMaximoB4 || filtros.MinimoTransferible > 1))
+            @if ((vista is "Oportunidades" or "Recomendados") && (filtros.UsarMaximoB4 || filtros.MinimoTransferible > 1))
             {
                 <div class="limites-activos">
-                    <span>Mostrando @(filtros.UsarMaximoB4 ? "solo productos sin stock en B4" : "productos disponibles")@((filtros.MinimoTransferible > 1) ? $" con al menos {Numero(filtros.MinimoTransferible)} para pedir" : "").</span>
+                    <span>Mostrando @(filtros.UsarMaximoB4 ? "solo productos sin stock en tu sucursal" : "productos disponibles")@((filtros.MinimoTransferible > 1) ? $" con al menos {Numero(filtros.MinimoTransferible)} para pedir" : "").</span>
                     <button class="btn btn-link btn-sm" @onclick="QuitarLimites">Ver todos los disponibles</button>
                 </div>
             }
@@ -174,9 +204,11 @@
             <div><h2>@TituloVista</h2><span class="text-muted small">@productos.Count productos</span></div>
             @if (vista == "Mi pedido")
             {
-                <button class="btn btn-primary btn-sm" disabled="@(exportando || Pedido.TotalProductos == 0)" @onclick="ExportarPedido">
+                <button class="btn btn-primary btn-sm" disabled="@(exportando || Pedido.TotalProductos == 0 || Pedido.Items.Any(i => i.RequiereRevision))" @onclick="ExportarPedido">
                     @(exportando ? "Preparando Excel…" : $"Descargar Excel ({Pedido.TotalProductos})")
                 </button>
+                <button class="btn btn-success btn-sm" disabled="@(cerrando || Pedido.TotalProductos == 0 || Pedido.Items.Any(i => i.RequiereRevision))" @onclick="CerrarPedido">@(cerrando ? "Guardando…" : "Guardar y cerrar pedido")</button>
+                <a class="small" href="resumen">Historial</a>
             }
             @if (vista != "Mi pedido")
             {
@@ -192,6 +224,80 @@
             }
         </div>
         <p class="lista-ayuda">@AyudaVista</p>
+        <div class="filtros-columnas-resumen">
+            <span>Pulsa el encabezado de una columna para filtrar u ordenar.</span>
+            @foreach (var filtro in filtrosColumnas)
+            {
+                <button class="btn btn-sm filtro-etiqueta" @onclick="() => QuitarFiltroColumna(filtro.Key)"
+                        title="Quitar este filtro">@NombreColumna(filtro.Key): @ResumenFiltro(filtro.Value) ×</button>
+            }
+            @if (columnaOrden is not null)
+            { <span>Orden: @NombreColumna(columnaOrden) @(ordenDescendente ? "↓" : "↑")</span> }
+            @if (filtrosColumnas.Count > 0 || columnaOrden is not null)
+            { <button class="btn btn-link btn-sm" @onclick="LimpiarFiltrosColumnas">Limpiar filtros de columnas</button> }
+        </div>
+
+        <PopoverAnclado Id="filtro-pedido" Abierto="@(columnaAbierta is not null)" AnclaId="@($"columna-{columnaAbierta}")"
+                        Titulo="@(columnaAbierta is null ? "Filtrar columna" : $"Filtrar {NombreColumna(columnaAbierta)}")" AlCerrar="CerrarFiltroColumna">
+        @if (columnaAbierta is not null)
+        {
+            var valoresEncontrados = valoresColumna.Where(v => v.Texto.Contains(busquedaValores.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+            <section class="filtro-columna-panel" aria-label="@($"Filtro de {NombreColumna(columnaAbierta)}")">
+                <div class="filtro-panel-titulo"><strong>Filtrar: @NombreColumna(columnaAbierta)</strong>
+                    <button class="btn btn-sm btn-light" @onclick="CerrarFiltroColumna" aria-label="Cerrar filtro sin aplicar">×</button></div>
+                <p class="filtro-seccion">Ordenar productos</p>
+                <div class="filtro-panel-orden">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => OrdenarColumna(false)">@(EsColumnaNumerica(columnaAbierta) ? "Menor a mayor ↑" : "A a Z ↑")</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => OrdenarColumna(true)">@(EsColumnaNumerica(columnaAbierta) ? "Mayor a menor ↓" : "Z a A ↓")</button>
+                </div>
+                <div class="filtro-panel-campos">
+                    @if (EsColumnaNumerica(columnaAbierta))
+                    {
+                        <div class="selector-field"><label for="condicionColumna">Condición</label>
+                            <SelectorBuscable Id="condicionColumna" Etiqueta="Condición" @bind-Valor="filtroEnEdicion.Condicion"
+                                Opciones="@(new OpcionSelector[] { new("todos", "Todas las cantidades"), new("igual", "Igual a"), new("distinto", "Distinto de"), new("mayor", "Mayor que"), new("menor", "Menor que"), new("minimo", "Mayor o igual a"), new("maximo", "Menor o igual a"), new("entre", "Entre") })" />
+                        </div>
+                        @if (filtroEnEdicion.Condicion != "todos")
+                        {
+                            <label>@(filtroEnEdicion.Condicion == "entre" ? "Desde" : "Cantidad")
+                                <input class="form-control form-control-sm" type="number" step="any" @bind="numeroDesde" @bind:event="oninput" /></label>
+                            @if (filtroEnEdicion.Condicion == "entre")
+                            { <label>Hasta<input class="form-control form-control-sm" type="number" step="any" @bind="numeroHasta" @bind:event="oninput" /></label> }
+                        }
+                    }
+                    else
+                    {
+                        <label>Mostrar los que contienen<input class="form-control form-control-sm" placeholder="Escribe un código o texto…" @bind="filtroEnEdicion.Texto" @bind:event="oninput" /></label>
+                    }
+                </div>
+                <details class="filtro-lista-valores" open="@(filtroEnEdicion.Valores is not null)">
+                    <summary>Seleccionar valores concretos</summary>
+                    <label class="visually-hidden" for="buscarValores">Buscar valores para marcar</label>
+                    <input id="buscarValores" class="form-control form-control-sm" placeholder="Buscar en esta lista…" @bind="busquedaValores" @bind:event="oninput" @bind:after="ReiniciarListaValores" />
+                    <div class="filtro-lista-acciones">
+                        <button class="btn btn-link btn-sm" @onclick="() => SoloValores(valoresEncontrados)">Solo resultados</button>
+                        <button class="btn btn-link btn-sm" @onclick="() => MarcarValores(valoresEncontrados, false)">Desmarcar</button>
+                        <button class="btn btn-link btn-sm" @onclick="TodosLosValores">Restaurar todos</button>
+                    </div>
+                    <div class="filtro-valores">
+                        @foreach (var valor in valoresEncontrados.Take(limiteValores))
+                        {
+                            <label @key="valor.Clave"><input type="checkbox" checked="@(filtroEnEdicion.Valores is null || filtroEnEdicion.Valores.Contains(valor.Clave))"
+                                @onchange="e => MarcarValor(valor.Clave, e.Value is true)" /> <span>@valor.Texto</span></label>
+                        }
+                        @if (valoresEncontrados.Count == 0) { <p>No hay valores que coincidan.</p> }
+                        @if (valoresEncontrados.Count > limiteValores)
+                        { <button class="btn btn-link btn-sm" @onclick="() => limiteValores += 100">Mostrar más (@limiteValores de @valoresEncontrados.Count)</button> }
+                    </div>
+                </details>
+                @if (errorFiltroColumna is not null) { <p class="text-danger small" role="alert">@errorFiltroColumna</p> }
+                <div class="filtro-panel-acciones">
+                    <button class="btn btn-primary btn-sm" @onclick="AplicarFiltroColumna">Aplicar filtro</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => QuitarFiltroColumna(columnaAbierta!)">Limpiar columna</button>
+                </div>
+            </section>
+        }
+        </PopoverAnclado>
 
         @if (vista == "Catálogo" && !TieneBusqueda() && !mostrarCatalogoCompleto)
         {
@@ -203,20 +309,25 @@
                 <thead>
                     <tr>
                         @if (vista != "Mi pedido") { <th class="col-seleccion"><span class="visually-hidden">Marcar</span></th> }
-                        <th class="col-producto">Código / descripción</th>
-                        <th class="col-stock" title="Existencias en mi sucursal B4">Tengo</th>
-                        <th class="col-stock" title="Cantidad disponible para pedir a Matriz">Matriz</th>
-                        <th class="col-stock" title="Cantidad disponible para pedir a Ebenezer">Ebenezer</th>
-                        @if (vista == "Mi pedido") { <th class="col-origen">Pedir a</th> }
-                        <th class="col-cantidad">Pedir</th>
-                        <th class="col-acciones"><span class="visually-hidden">Acciones</span></th>
+                        @foreach (var columna in ColumnasVisibles)
+                        {
+                            <th class="@ClaseColumna(columna)" aria-sort="@(columnaOrden == columna ? (ordenDescendente ? "descending" : "ascending") : "none")">
+                                <button id="@($"columna-{columna}")" class="encabezado-filtro @(filtrosColumnas.ContainsKey(columna) ? "filtrado" : "")"
+                                        aria-haspopup="dialog" aria-controls="filtro-pedido"
+                                        aria-label="@($"Filtrar y ordenar {NombreColumna(columna)}")" aria-expanded="@(columnaAbierta == columna ? "true" : "false")"
+                                        @onclick="() => AbrirFiltroColumna(columna)">
+                                    <span class="encabezado-texto">@NombreColumna(columna)</span><span class="encabezado-icono" aria-hidden="true">@if (columnaOrden == columna) { @(ordenDescendente ? "↓" : "↑") } else { <svg viewBox="0 0 16 16"><path d="M2 3h12L9 9v4l-2-1V9z" /></svg> }</span>
+                                </button>
+                            </th>
+                        }
+                        <th class="col-acciones">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var producto in productosPagina)
                     {
                         var item = Pedido.Obtener(producto.Codigo);
-                        <tr @key="producto.Codigo">
+                        <tr @key="producto.Codigo" class="@(item?.RequiereRevision == true ? "pendiente-revision" : "")">
                             @if (vista != "Mi pedido")
                             {
                                 <td><input type="checkbox" class="form-check-input" aria-label="@($"Marcar {producto.Descripcion}")"
@@ -224,6 +335,7 @@
                                     checked="@seleccionados.Contains(producto.Codigo)" @onchange="e => CambiarSeleccion(producto.Codigo, e)" /></td>
                             }
                             <td class="producto-info">
+                                <div class="producto-principal">
                                 <details class="producto-detalles">
                                     <summary title="Ver detalle del producto" aria-label="@($"Ver detalle de {producto.Codigo}")"><strong class="producto-codigo">@producto.Codigo</strong></summary>
                                     <div class="producto-descripcion-completa">@producto.Descripcion</div>
@@ -233,6 +345,8 @@
                                     <div>Nacional: @Numero(producto.TotalCalculado)</div>
                                     <div>Bame: @Numero(producto.ObtenerStock("B39")) — solo referencia</div>
                                     <div>Se dejan @Numero(item?.ReservaCentro ?? filtros.ReservaCentro) en cada bodega.</div>
+                                    @if (evaluaciones.TryGetValue(producto.Codigo, out var evaluacion))
+                                    { <div><strong>@evaluacion.Confianza:</strong> @evaluacion.Motivo</div> }
                                     @if (Actividad.Actual is ReporteActividad datos)
                                     {
                                         @if (Actividad.Obtener(producto.Codigo) is ActividadProducto dato)
@@ -240,23 +354,33 @@
                                             <div>Sin actividad: @dato.DiasSinActividad días al @datos.FechaReporte.ToString("dd/MM/yyyy").</div>
                                             @if (dato.UltimoMovimiento is DateOnly ultimo)
                                             { <div>Último movimiento: @ultimo.ToString("dd/MM/yyyy")</div> }
-                                            <div>Stock en el reporte B4: @Numero(dato.StockB4)</div>
+                                            <div>Stock en el reporte local: @Numero(dato.StockB4)</div>
                                         }
                                         else { <div>Sin información de actividad: no se aparta automáticamente.</div> }
                                     }
                                 </details>
+                                <input class="form-control form-control-sm pedido-comentario" type="text" maxlength="300"
+                                       placeholder="Comentario…" title="Comentario opcional para este pedido"
+                                       aria-label="@($"Comentario para {producto.Codigo}")"
+                                       value="@ComentarioPara(producto.Codigo)" @oninput="e => CambiarComentario(producto.Codigo, e)" />
+                                </div>
                                 <div class="producto-descripcion" title="@producto.Descripcion">@producto.Descripcion</div>
+                                @if (vista != "Mi pedido" && recomendaciones.TryGetValue(producto.Codigo, out var propuesta))
+                                { <div class="small" title="@propuesta.Motivo">Stock: @Numero(propuesta.StockAnterior ?? 0) → @Numero(propuesta.StockActual) · Reponer @Numero(CantidadParaAgregar(producto))</div> }
                                 @if (vista == "Mi pedido" && item is not null)
                                 {
-                                    <input class="form-control form-control-sm pedido-comentario" type="text" maxlength="300"
-                                           placeholder="Comentario opcional" aria-label="@($"Comentario para {producto.Codigo}")"
-                                           @bind="item.Comentario" @bind:event="oninput" />
+                                    @if (item.RequiereRevision)
+                                    { <div class="small fw-bold">Pendiente de revisar con este Excel: confirma origen y cantidad.</div> }
+                                    <label class="small"><input type="checkbox" @bind="item.CompraExcepcional" @bind:after="Pedido.NotificarCambio" /> Compra excepcional (no aprender esta cantidad)</label>
+                                    @if (item.CantidadSolicitada > ReglasAbastecimiento.Disponible(producto, item.BodegaOrigen, item.ReservaCentro)
+                                        || !Configuracion.Actual.OrigenesHabilitados.Contains(item.BodegaOrigen))
+                                    { <div class="text-danger small">Revisa cantidad/origen: ya no está disponible en este corte.</div> }
                                 }
                                 @if (vista == "Sin movimiento" && Actividad.Obtener(producto.Codigo) is ActividadProducto actividad)
                                 { <div class="actividad-producto">@actividad.DiasSinActividad días sin movimiento</div> }
                             </td>
-                            <td class="numero-stock"><strong>@Numero(producto.ObtenerStock("B4"))</strong></td>
-                            @foreach (var bodega in new[] { "B1", "B40" })
+                            <td class="numero-stock"><strong>@Numero(producto.ObtenerStock(Configuracion.Actual.BodegaLocal))</strong></td>
+                            @foreach (var bodega in Configuracion.Actual.OrigenesHabilitados)
                             {
                                 <td class="numero-stock">
                                     @if (Configuracion.Actual.OrigenesHabilitados.Contains(bodega))
@@ -268,13 +392,11 @@
                             }
                             @if (vista == "Mi pedido" && item is not null)
                             {
-                                <td><select class="form-select form-select-sm" aria-label="@($"Bodega para {producto.Descripcion}")"
-                                            value="@item.BodegaOrigen" @onchange="e => CambiarBodega(producto, e)">
-                                    @foreach (var bodega in BodegasConStock(producto))
-                                    { <option value="@bodega">@Configuracion.ObtenerNombreBodega(bodega)</option> }
-                                </select></td>
+                                <td><SelectorBuscable Etiqueta="@($"Bodega para {producto.Descripcion}")" Valor="@item.BodegaOrigen"
+                                    ValorChanged="v => CambiarBodega(producto, new ChangeEventArgs { Value = v })"
+                                    Opciones="@BodegasConStock(producto).Select(b => new OpcionSelector(b, Configuracion.ObtenerNombreBodega(b))).Prepend(new OpcionSelector("", "Elegir origen…"))" /></td>
                             }
-                            <td>
+                            <td class="cantidad-celda">
                                 @if (item is not null)
                                 {
                                     <input @key="revisionCantidades" type="number" min="0" step="any" class="form-control form-control-sm cantidad-input"
@@ -290,26 +412,29 @@
                                            value="@CantidadParaAgregar(producto).ToString(CultureInfo.InvariantCulture)" @onchange="e => PrepararCantidad(producto, e)" />
                                 }
                             </td>
-                            <td>
+                            <td class="acciones-celda">
                                 <div class="fila-acciones">
                                     @if (item is not null)
                                     {
                                         @if (vista != "Mi pedido") { <span class="text-success small">En tu pedido</span> }
+                                        @if (item.RequiereRevision)
+                                        { <button class="btn btn-outline-primary btn-sm" @onclick="() => ConfirmarRevision(producto)">Confirmar</button> }
                                         <button class="btn btn-outline-secondary btn-sm" @onclick="() => Quitar(producto.Codigo)">Quitar</button>
                                     }
                                     else
                                     {
                                         <button class="btn btn-primary btn-sm" disabled="@(ObtenerDisponibleCentro(producto) <= 0)"
                                                 @onclick="() => AgregarUno(producto)">Agregar</button>
-                                        @if (vista == "Oportunidades")
+                                        @if (vista is "Oportunidades" or "Recomendados")
                                         {
-                                            <details class="fila-mas">
-                                                <summary title="Más acciones" aria-label="@($"Más acciones para {producto.Codigo}")">⋯</summary>
-                                                <div class="fila-mas-opciones">
-                                                    <button class="btn btn-light btn-sm" @onclick="() => Omitir(producto.Codigo)">Omitir por ahora</button>
-                                                    <button class="btn btn-light btn-sm" @onclick="() => ExcluirUno(producto)">No se vende</button>
-                                                </div>
-                                            </details>
+                                            <button type="button" class="fila-icono" title="Omitir por ahora"
+                                                    aria-label="@($"Omitir por ahora {producto.Codigo}")" @onclick="() => Omitir(producto.Codigo)">
+                                                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 4 7 6-7 6V4ZM15 4v12" /></svg>
+                                            </button>
+                                            <button type="button" class="fila-icono" title="No se vende · No volver a sugerir"
+                                                    aria-label="@($"No se vende: {producto.Codigo}")" @onclick="() => ExcluirUno(producto)">
+                                                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m3 3 14 14M8 4.5a10 10 0 0 1 9 5.5 13 13 0 0 1-2.2 2.8M12 15.5A10 10 0 0 1 3 10a13 13 0 0 1 2.2-2.8M8 8a2.8 2.8 0 0 0 4 4" /></svg>
+                                            </button>
                                         }
                                         @if (Configuracion.Actual.ProductosNoSugerir.Contains(producto.Codigo))
                                         { <button class="btn btn-link btn-sm" @onclick="() => Reactivar(producto)">Volver a revisar</button> }
@@ -324,7 +449,7 @@
                     }
                     @if (productosPagina.Count == 0)
                     {
-                        <tr><td colspan="7" class="text-center text-muted py-5">@MensajeListaVacia</td></tr>
+                        <tr><td colspan="@(ColumnasVisibles.Length + (vista == "Mi pedido" ? 1 : 2))" class="text-center text-muted py-5">@MensajeListaVacia</td></tr>
                     }
                 </tbody>
             </table>
@@ -334,11 +459,18 @@
             <span>Página @pagina de @totalPaginas</span>
             <button class="btn btn-outline-secondary btn-sm" disabled="@(pagina >= totalPaginas)" @onclick="PaginaSiguiente">Siguiente</button>
         </footer>
-        <p class="pedido-nota">El pedido y los reportes se mantienen mientras esta página siga abierta. Recargar o importar otro inventario reinicia el pedido y los datos de actividad.</p>
+        <p class="pedido-nota">El pedido se guarda para tu sucursal. Usa «Actualizar pedido» en el menú para consultar los cambios de tus compañeros. El último reporte de movimientos queda guardado para próximas revisiones.</p>
     }
 </div>
 @code {
     private const int TamanoPagina = 25;
+    [SupplyParameterFromQuery(Name = "lista")] public string? ListaInicial { get; set; }
+    private string? listaProcesada;
+    protected override void OnParametersSet()
+    {
+        if (ListaInicial == "mi-pedido" && listaProcesada != ListaInicial) vista = "Mi pedido";
+        listaProcesada = ListaInicial;
+    }
 
     private const string ClaveFiltros =
         "PedidoMercaderia.Filtros.v4";
@@ -346,22 +478,139 @@
     private FiltrosPedido filtros = new();
     private FiltrosPedido opciones = new();
 
+    private readonly Dictionary<string, FiltroColumnaPedido> filtrosColumnas = new();
+    private string? columnaAbierta, columnaOrden, errorFiltroColumna;
+    private bool ordenDescendente;
+    private FiltroColumnaPedido filtroEnEdicion = new();
+    private List<ValorColumnaPedido> valoresColumna = new();
+    private string busquedaValores = "", numeroDesde = "", numeroHasta = "";
+    private int limiteValores = 100;
+    private string[] ColumnasVisibles => new[] { "producto", "local" }.Concat(Configuracion.Actual.OrigenesHabilitados)
+        .Concat(vista == "Mi pedido" ? new[] { "origen", "pedir" } : new[] { "pedir" }).ToArray();
+    private static bool EsColumnaNumerica(string columna) => columna is "local" or "pedir" || ConfiguracionBodegas.EsCodigoValido(columna);
+    private string NombreColumna(string columna) => columna switch
+    { "producto" => "Código / descripción", "local" => "Tengo", "origen" => "Pedir a", "pedir" => "Pedir", _ => Configuracion.ObtenerNombreBodega(columna) };
+    private static string ClaseColumna(string columna) => columna switch
+    { "producto" => "col-producto", "origen" => "col-origen", "pedir" => "col-cantidad", _ => "col-stock" };
+
+    private ValorColumnaPedido ValorColumna(ProductoInventario producto, string columna)
+    {
+        var item = Pedido.Obtener(producto.Codigo);
+        if (columna == "producto") return new(producto.Codigo, $"{producto.Codigo} · {producto.Descripcion}");
+        if (columna == "origen") return new(item?.BodegaOrigen ?? "", item is null ? "Sin origen" : Configuracion.ObtenerNombreBodega(item.BodegaOrigen));
+        if (ConfiguracionBodegas.EsCodigoValido(columna) && !Configuracion.Actual.OrigenesHabilitados.Contains(columna)) return new("", "— (bodega desactivada)");
+        decimal numero = columna switch
+        {
+            "local" => producto.ObtenerStock(Configuracion.Actual.BodegaLocal),
+            "pedir" => item?.CantidadSolicitada ?? CantidadParaAgregar(producto),
+            _ => ReglasAbastecimiento.Disponible(producto, columna, item?.ReservaCentro ?? filtros.ReservaCentro)
+        };
+        return new(numero.ToString("G29", CultureInfo.InvariantCulture), Numero(numero), numero);
+    }
+
+    private void AbrirFiltroColumna(string columna)
+    {
+        if (columnaAbierta == columna) { CerrarFiltroColumna(); return; }
+        columnaAbierta = columna;
+        filtroEnEdicion = filtrosColumnas.TryGetValue(columna, out var activo) ? activo.Copiar() : new();
+        numeroDesde = filtroEnEdicion.Desde?.ToString(CultureInfo.InvariantCulture) ?? "";
+        numeroHasta = filtroEnEdicion.Hasta?.ToString(CultureInfo.InvariantCulture) ?? "";
+        busquedaValores = "";
+        errorFiltroColumna = null;
+        limiteValores = 100;
+        valoresColumna = ObtenerFiltrados(columna).Select(p => ValorColumna(p, columna))
+            .DistinctBy(v => v.Clave, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v.Numero).ThenBy(v => v.Texto, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private void CerrarFiltroColumna() { columnaAbierta = null; errorFiltroColumna = null; }
+    private void ReiniciarListaValores() => limiteValores = 100;
+    private void TodosLosValores() => filtroEnEdicion.Valores = null;
+    private void SoloValores(IEnumerable<ValorColumnaPedido> valores) => filtroEnEdicion.Valores = valores.Select(v => v.Clave).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private void MarcarValor(string clave, bool marcado)
+    {
+        filtroEnEdicion.Valores ??= valoresColumna.Select(v => v.Clave).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (marcado) filtroEnEdicion.Valores.Add(clave); else filtroEnEdicion.Valores.Remove(clave);
+    }
+    private void MarcarValores(IEnumerable<ValorColumnaPedido> valores, bool marcado)
+    { foreach (var valor in valores) MarcarValor(valor.Clave, marcado); }
+    private void ReiniciarPaginaColumnas() { pagina = 1; seleccionados.Clear(); mensaje = null; }
+    private void OrdenarColumna(bool descendente)
+    {
+        columnaOrden = columnaAbierta;
+        ordenDescendente = descendente;
+        CerrarFiltroColumna();
+        ReiniciarPaginaColumnas();
+    }
+    private void AplicarFiltroColumna()
+    {
+        if (columnaAbierta is null) return;
+        if (filtroEnEdicion.Condicion != "todos")
+        {
+            const NumberStyles estilo = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+            if (!decimal.TryParse(numeroDesde.Replace(',', '.'), estilo, CultureInfo.InvariantCulture, out var desde))
+            { errorFiltroColumna = "Escribe una cantidad válida."; return; }
+            filtroEnEdicion.Desde = desde;
+            if (filtroEnEdicion.Condicion == "entre")
+            {
+                if (!decimal.TryParse(numeroHasta.Replace(',', '.'), estilo, CultureInfo.InvariantCulture, out var hasta) || hasta < desde)
+                { errorFiltroColumna = "El valor Hasta debe ser igual o mayor que Desde."; return; }
+                filtroEnEdicion.Hasta = hasta;
+            }
+        }
+        if (filtroEnEdicion.Activo) filtrosColumnas[columnaAbierta] = filtroEnEdicion.Copiar();
+        else filtrosColumnas.Remove(columnaAbierta);
+        CerrarFiltroColumna();
+        ReiniciarPaginaColumnas();
+    }
+    private void QuitarFiltroColumna(string columna)
+    {
+        filtrosColumnas.Remove(columna);
+        CerrarFiltroColumna();
+        ReiniciarPaginaColumnas();
+    }
+    private void LimpiarFiltrosColumnas()
+    {
+        filtrosColumnas.Clear();
+        columnaOrden = null;
+        CerrarFiltroColumna();
+        ReiniciarPaginaColumnas();
+    }
+    private static string ResumenFiltro(FiltroColumnaPedido filtro)
+    {
+        var partes = new List<string>();
+        if (!string.IsNullOrWhiteSpace(filtro.Texto)) partes.Add($"contiene «{filtro.Texto.Trim()}»");
+        if (filtro.Condicion != "todos")
+        {
+            var operador = filtro.Condicion switch { "igual" => "=", "distinto" => "≠", "mayor" => ">", "menor" => "<", "minimo" => "≥", "maximo" => "≤", _ => "entre" };
+            partes.Add($"{operador} {Numero(filtro.Desde ?? 0)}" + (filtro.Condicion == "entre" ? $" y {Numero(filtro.Hasta ?? 0)}" : ""));
+        }
+        if (filtro.Valores is not null) partes.Add($"{filtro.Valores.Count} valores marcados");
+        return string.Join(" · ", partes);
+    }
+
     private static string Numero(decimal valor) => valor.ToString("0.############################", CultureInfo.CurrentCulture);
 
     private string TituloVista => vista switch
     {
+        "Nuevos" => "Productos nuevos en el último Excel",
+        "Recomendados" => "Reposiciones según el último Excel",
+        "Dudosos" => "Sugerencias para revisar manualmente",
         "Oportunidades" => "Productos por revisar",
         "Catálogo" => "Todo el inventario",
         "Omitidos" => "Omitidos por ahora",
         "No sugerir" => "Productos que no se venden",
-        "Sin movimiento" => "Sin movimiento en B4",
+        "Sin movimiento" => "Sin movimiento en tu sucursal",
         _ => "Mi pedido"
     };
 
     private string AyudaVista => vista switch
     {
-        "Oportunidades" => "Escribe cuánto necesitas y pulsa Agregar. Matriz y Ebenezer muestran lo que puedes pedir.",
-        "Mi pedido" => "Revisa cantidades, origen y comentarios. El Excel incluye todo tu pedido y queda listo para adjuntar al correo.",
+        "Nuevos" => "Aparecen por primera vez en el inventario. Tú decides si pedirlos; no se agregan automáticamente.",
+        "Recomendados" => "Cantidades según bajadas observadas y cobertura. Abre el detalle del código para ver el motivo. Puedes ajustar antes de agregar.",
+        "Dudosos" => "Casos sin suficiente evidencia o con cambios inusuales. No se añaden al generar el borrador.",
+        "Oportunidades" => "Escribe cuánto necesitas y pulsa Agregar. Los centros muestran lo que puedes pedir.",
+        "Mi pedido" => "El borrador se guarda automáticamente. Al terminar, pulsa Guardar y cerrar pedido para conservarlo en el historial y poder descargarlo después.",
         "Omitidos" => "Los apartaste solo para este pedido. Puedes recuperarlos aquí.",
         "No sugerir" => "No aparecerán en próximos pedidos. Usa Volver a revisar si quieres recuperarlos.",
         "Sin movimiento" => "Tienen stock y superan el plazo elegido. Puedes agregarlos o elegir Incluir esta vez. No significa necesariamente que no se vendan.",
@@ -370,6 +619,7 @@
 
     private string MensajeListaVacia => vista switch
     {
+        "Recomendados" => "No hay reposiciones pendientes con estos filtros. Puedes revisar otros productos en Por revisar.",
         "Mi pedido" => "Aún no hay productos que coincidan. Agrega productos desde Por revisar.",
         "Omitidos" => "No hay productos omitidos que coincidan con tu búsqueda.",
         "No sugerir" => "No hay productos excluidos que coincidan con tu búsqueda.",
@@ -378,7 +628,10 @@
     };
 
     private string vista = "Oportunidades";
-    private bool exportando;
+    private bool exportando, generando, cerrando;
+    private HashSet<string> nuevos = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, PropuestaPedido> recomendaciones = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, PropuestaPedido> evaluaciones = new(StringComparer.OrdinalIgnoreCase);
 
     private async Task ExportarPedido()
     {
@@ -387,10 +640,10 @@
         mensaje = null;
         try
         {
-            using var archivo = new MemoryStream(PedidoExportacionService.Crear(Pedido.Items, Inventario.Productos, Configuracion.Actual));
+            using var archivo = new MemoryStream(await Trabajo.DescargarExcel());
             using var referencia = new DotNetStreamReference(archivo);
             await using var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/descargarPedido.js");
-            await modulo.InvokeVoidAsync("descargarPedido", $"Pedido_B4_{DateTime.Now:yyyy-MM-dd_HHmm}.xlsx", referencia);
+            await modulo.InvokeVoidAsync("descargarPedido", $"Pedido_{DateTime.Now:yyyy-MM-dd_HHmm}.xlsx", referencia);
             mensaje = "Descarga iniciada. Adjunta el Excel a tu correo cuando termine de descargarse.";
             esError = false;
         }
@@ -423,11 +676,16 @@
         new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, decimal> cantidadesPreparadas = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> comentariosPreparados = new(StringComparer.OrdinalIgnoreCase);
     private int revisionCantidades;
 
     protected override async Task OnInitializedAsync()
     {
-        await Configuracion.CargarAsync();
+        nuevos = Trabajo.Estado.Cambios.Where(c => c.Tipo == "Nuevo").Select(c => c.Codigo).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        recomendaciones = Trabajo.Estado.Propuestas.Where(p => p.Rapido).ToDictionary(p => p.Codigo, StringComparer.OrdinalIgnoreCase);
+        evaluaciones = Trabajo.Estado.Propuestas.ToDictionary(p => p.Codigo, StringComparer.OrdinalIgnoreCase);
+        if (Trabajo.Estado.Cortes.Count > 1 && ListaInicial != "mi-pedido") vista = "Recomendados";
+        if (Pedido.Items.Any(i => i.RequiereRevision)) vista = "Mi pedido";
 
         try
         {
@@ -488,7 +746,7 @@
             .OrderBy(x => x)
             .ToList();
 
-        int ajustes = Pedido.ValidarBorrador(
+        int ajustes = Pedido.Compartido ? 0 : Pedido.ValidarBorrador(
             Inventario.Productos,
             Configuracion.Actual);
         if (ajustes > 0)
@@ -513,10 +771,10 @@
     {
         return busqueda.Trim().Length >= 2 ||
                !string.IsNullOrWhiteSpace(marcaSeleccionada) ||
-               !string.IsNullOrWhiteSpace(grupoSeleccionado);
+               !string.IsNullOrWhiteSpace(grupoSeleccionado) || filtrosColumnas.Count > 0 || columnaAbierta is not null || columnaOrden is not null;
     }
 
-    private List<ProductoInventario> ObtenerFiltrados()
+    private List<ProductoInventario> ObtenerFiltrados(string? excluirColumna = null)
     {
         if (vista == "Catálogo" &&
             !TieneBusqueda() &&
@@ -528,14 +786,27 @@
         IEnumerable<ProductoInventario> consulta =
             Inventario.Productos;
 
-        if (vista == "Oportunidades")
+        if (vista == "Dudosos")
+        {
+            consulta = consulta.Where(p => evaluaciones.TryGetValue(p.Codigo, out var e) && !e.Rapido && e.Tipo != "Nuevo" && e.Cantidad > 0 && !Pedido.Contiene(p.Codigo));
+        }
+        else if (vista == "Oportunidades")
         {
             consulta = consulta.Where(EsOportunidad);
         }
+        else if (vista == "Nuevos")
+        {
+            consulta = consulta.Where(p => nuevos.Contains(p.Codigo) && !Pedido.Contiene(p.Codigo));
+        }
+        else if (vista == "Recomendados")
+        {
+            consulta = consulta.Where(p => recomendaciones.ContainsKey(p.Codigo) && EsOportunidad(p));
+        }
         else if (vista == "Mi pedido")
         {
-            consulta = consulta.Where(p =>
-                Pedido.Contiene(p.Codigo));
+            var catalogo = Inventario.Productos.ToDictionary(p => p.Codigo, StringComparer.OrdinalIgnoreCase);
+            consulta = Pedido.Items.Select(i => catalogo.GetValueOrDefault(i.CodigoProducto)
+                ?? new ProductoInventario { Codigo = i.CodigoProducto, Descripcion = i.DescripcionProducto + " (ausente del corte actual)" });
         }
         else if (vista == "Omitidos")
         {
@@ -583,7 +854,20 @@
                     StringComparison.OrdinalIgnoreCase));
         }
 
-        if (vista == "Oportunidades")
+        foreach (var filtro in filtrosColumnas.Where(f => f.Key != excluirColumna && ColumnasVisibles.Contains(f.Key)))
+            consulta = consulta.Where(p => filtro.Value.Coincide(ValorColumna(p, filtro.Key)));
+
+        if (columnaOrden is not null && ColumnasVisibles.Contains(columnaOrden))
+        {
+            consulta = EsColumnaNumerica(columnaOrden)
+                ? (ordenDescendente ? consulta.OrderByDescending(p => ValorColumna(p, columnaOrden).Numero) : consulta.OrderBy(p => ValorColumna(p, columnaOrden).Numero)).ThenBy(p => p.Codigo)
+                : (ordenDescendente ? consulta.OrderByDescending(p => ValorColumna(p, columnaOrden).Texto, StringComparer.OrdinalIgnoreCase) : consulta.OrderBy(p => ValorColumna(p, columnaOrden).Texto, StringComparer.OrdinalIgnoreCase)).ThenBy(p => p.Codigo);
+        }
+        else if (vista == "Recomendados")
+        {
+            consulta = consulta.OrderByDescending(p => recomendaciones[p.Codigo].Prioridad).ThenBy(p => p.Codigo);
+        }
+        else if (vista == "Oportunidades")
         {
             consulta = filtros.Orden switch
             {
@@ -592,7 +876,7 @@
                     .ThenBy(p => p.Descripcion),
 
                 _ => consulta
-                    .OrderBy(p => p.ObtenerStock("B4"))
+                    .OrderBy(p => p.ObtenerStock(Configuracion.Actual.BodegaLocal))
                     .ThenByDescending(ObtenerDisponibleCentro)
                     .ThenBy(p => p.Codigo)
             };
@@ -737,11 +1021,7 @@
         if (!ValidarFiltros())
             return;
 
-        bool agregado = Pedido.Agregar(
-            producto,
-            Configuracion.Actual,
-            CantidadParaAgregar(producto),
-            filtros.ReservaCentro);
+        bool agregado = AgregarPreparado(producto);
 
         if (agregado)
         {
@@ -770,8 +1050,7 @@
         int agregados = 0;
         foreach (var producto in productos)
         {
-            if (Pedido.Agregar(producto, Configuracion.Actual,
-                CantidadParaAgregar(producto), filtros.ReservaCentro))
+            if (AgregarPreparado(producto))
                 agregados++;
         }
 
@@ -877,8 +1156,32 @@
     }
 
     private decimal CantidadParaAgregar(ProductoInventario producto) =>
-        Math.Min(cantidadesPreparadas.GetValueOrDefault(producto.Codigo, filtros.CantidadInicial),
+        Math.Min(cantidadesPreparadas.GetValueOrDefault(producto.Codigo, recomendaciones.TryGetValue(producto.Codigo, out var propuesta) ? propuesta.Cantidad : filtros.CantidadInicial),
             ObtenerDisponibleCentro(producto));
+
+    private string ComentarioPara(string codigo) =>
+        Pedido.Obtener(codigo)?.Comentario ?? comentariosPreparados.GetValueOrDefault(codigo, "");
+
+    private void CambiarComentario(string codigo, ChangeEventArgs e)
+    {
+        string comentario = e.Value?.ToString() ?? "";
+        if (comentario.Length > 300) comentario = comentario[..300];
+        if (Pedido.Obtener(codigo) is { } item)
+        {
+            item.Comentario = comentario;
+            Pedido.NotificarCambio();
+        }
+        else if (comentario.Length == 0) comentariosPreparados.Remove(codigo);
+        else comentariosPreparados[codigo] = comentario;
+    }
+
+    private bool AgregarPreparado(ProductoInventario producto)
+    {
+        if (!Pedido.Agregar(producto, Configuracion.Actual, CantidadParaAgregar(producto),
+                filtros.ReservaCentro, ComentarioPara(producto.Codigo))) return false;
+        comentariosPreparados.Remove(producto.Codigo);
+        return true;
+    }
 
     private void PrepararCantidad(ProductoInventario producto, ChangeEventArgs e)
     {
@@ -939,8 +1242,54 @@
         seleccionados.Clear();
     }
 
+    private List<ProductoInventario> RecomendadosParaAgregar() => Inventario.Productos
+        .Where(p => recomendaciones.ContainsKey(p.Codigo) && EsOportunidad(p)).ToList();
+
+    private void MostrarNuevos() { MostrarMiPedido(); vista = "Nuevos"; }
+    private void MostrarDudosos() { MostrarMiPedido(); vista = "Dudosos"; }
+
+    private void ConfirmarRevision(ProductoInventario producto)
+    {
+        esError = !Pedido.ConfirmarRevision(producto, Configuracion.Actual);
+        mensaje = esError ? "Elige un centro con stock suficiente y ajusta la cantidad antes de confirmar." : "Producto revisado.";
+    }
+
+    private async Task CerrarPedido()
+    {
+        if (cerrando) return;
+        cerrando = true; mensaje = null;
+        try { await Trabajo.Realizar(); Navegacion.NavigateTo("resumen"); }
+        catch (Exception ex) { esError = true; mensaje = ex.Message; }
+        finally { cerrando = false; }
+    }
+
+    private void MostrarRecomendados()
+    {
+        MostrarMiPedido();
+        vista = "Recomendados";
+    }
+
+    private async Task GenerarBorrador()
+    {
+        if (generando || !ValidarFiltros()) return;
+        generando = true; mensaje = null;
+        try
+        {
+            int agregados = 0;
+            foreach (var producto in RecomendadosParaAgregar())
+                if (AgregarPreparado(producto)) agregados++;
+            if (Pedido.EsperarGuardado is not null) await Pedido.EsperarGuardado();
+            MostrarMiPedido();
+            esError = false;
+            mensaje = $"{agregados} reposiciones añadidas. Revisa cantidades y descarga tu Excel cuando esté listo.";
+        }
+        catch (Exception ex) { esError = true; mensaje = ex.Message; }
+        finally { generando = false; }
+    }
+
     private void MostrarOportunidades()
     {
+        LimpiarFiltrosColumnas();
         vista = "Oportunidades";
         pagina = 1;
         seleccionados.Clear();
@@ -948,6 +1297,7 @@
 
     private void MostrarCatalogo()
     {
+        LimpiarFiltrosColumnas();
         vista = "Catálogo";
         pagina = 1;
         seleccionados.Clear();
@@ -961,6 +1311,7 @@
 
     private void MostrarMiPedido()
     {
+        LimpiarFiltrosColumnas();
         vista = "Mi pedido";
         pagina = 1;
         seleccionados.Clear();
@@ -985,6 +1336,13 @@
     {
         MostrarMiPedido();
         vista = "Sin movimiento";
+    }
+
+    private void ReporteActualizado()
+    {
+        pagina = 1;
+        seleccionados.Clear();
+        if (!Actividad.TieneReporte && vista == "Sin movimiento") vista = "Oportunidades";
     }
 
     private void CambiarFiltroActividad(ChangeEventArgs e)
