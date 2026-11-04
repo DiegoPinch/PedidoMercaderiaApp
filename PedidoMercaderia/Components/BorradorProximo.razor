@@ -1,49 +1,115 @@
 @namespace PedidoMercaderia.Components
+@using System.Globalization
 @using PedidoMercaderia.Services
 @using PedidoMercaderia.Models
+@implements IDisposable
 @inject PedidoService Pedido
 @inject InventarioService Inventario
+@inject TrabajoService Trabajo
+@inject NavigationManager Navegacion
 
-<section class="draft-panel ui-card mt-3">
+<section class="draft-panel ui-card">
     <div class="module-section-title"><h2 class="h5">Borrador para el próximo pedido</h2><span class="module-badge">@Pedido.TotalProductos @(Pedido.TotalProductos == 1 ? "producto" : "productos")</span></div>
-    <p class="small text-muted">Anota lo que te soliciten durante la semana. Se guarda para tu equipo; al cargar el próximo Excel confirmarás cantidades y bodegas.</p>
-    <label for="buscarProximo" class="form-label small">Buscar producto por código o descripción</label>
-    <input id="buscarProximo" type="search" class="form-control form-control-sm" placeholder="Escribe al menos 2 caracteres" @bind="busqueda" @bind:event="oninput" />
-    @if (busqueda.Trim().Length >= 2)
+    <p class="small text-muted">Busca en el último catálogo y anota lo que te pidan tus clientes, aunque no tenga stock o no se venda habitualmente. Las anotaciones se guardan para tu equipo.</p>
+    <div class="draft-search">
+        <div><label for="buscarProximo" class="form-label small">Buscar producto por código o descripción</label>
+            <input id="buscarProximo" type="search" class="form-control form-control-sm" placeholder="Ejemplo: código de cámara, cable…" value="@busqueda" @oninput="Buscar" /></div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="AlternarCatalogo">@(mostrarCatalogo ? "Ocultar catálogo" : "Ver catálogo")</button>
+    </div>
+    @if (busqueda.Trim().Length >= 2 || mostrarCatalogo)
     {
-        <div class="ui-table-wrap draft-results mt-2"><table class="table table-sm"><caption class="visually-hidden">Coincidencias del catálogo para anotar en el próximo pedido</caption><tbody>
-        @foreach (var p in Coincidencias)
+        var coincidencias = Coincidencias.ToList();
+        <div class="ui-table-wrap draft-results mt-2"><table class="table table-sm align-middle draft-catalog"><caption class="visually-hidden">Productos para anotar en el próximo pedido</caption>
+            <thead><tr><th>Código / descripción</th><th>Cantidad</th><th>Comentario</th><th><span class="visually-hidden">Anotar</span></th></tr></thead><tbody>
+        @foreach (var p in coincidencias.Skip((pagina - 1) * 20).Take(20))
         {
-            <tr><td class="ui-product"><strong>@p.Codigo</strong><small>@p.Descripcion</small></td><td><button class="btn btn-outline-primary btn-sm" disabled="@Pedido.Contiene(p.Codigo)" @onclick="() => Anotar(p)">@(Pedido.Contiene(p.Codigo) ? "Anotado" : "Anotar")</button></td></tr>
+            <tr @key="p.Codigo"><td class="ui-product"><strong>@p.Codigo</strong><small>@p.Descripcion</small></td>
+                <td><input class="form-control form-control-sm draft-quantity" type="number" min="0" step="any" aria-label="@($"Cantidad a anotar de {p.Codigo}")"
+                           disabled="@Pedido.Contiene(p.Codigo)" value="@cantidades.GetValueOrDefault(p.Codigo, "1")" @onchange="e => cantidades[p.Codigo] = e.Value?.ToString() ?? string.Empty" /></td>
+                <td><input class="form-control form-control-sm" maxlength="300" placeholder="Cliente o motivo…" aria-label="@($"Nota para {p.Codigo}")"
+                           disabled="@Pedido.Contiene(p.Codigo)" value="@comentarios.GetValueOrDefault(p.Codigo, "")" @oninput="e => comentarios[p.Codigo] = e.Value?.ToString() ?? string.Empty" /></td>
+                <td><button type="button" class="btn btn-primary btn-sm" disabled="@Pedido.Contiene(p.Codigo)" @onclick="() => Anotar(p)">@(Pedido.Contiene(p.Codigo) ? "Anotado" : "Anotar")</button></td></tr>
         }
-        @if (!Coincidencias.Any()) { <tr><td>No hay coincidencias en el catálogo cargado.</td></tr> }
+        @if (coincidencias.Count == 0) { <tr><td colspan="4">No hay coincidencias en el último catálogo. Prueba con parte del código o de la descripción.</td></tr> }
         </tbody></table></div>
+        @if (coincidencias.Count > 20)
+        {
+            <div class="d-flex align-items-center gap-3 my-2"><button type="button" class="btn btn-light btn-sm" disabled="@(pagina <= 1)" @onclick="() => pagina--">Anterior</button>
+                <small>@coincidencias.Count productos · Página @pagina</small><button type="button" class="btn btn-light btn-sm" disabled="@(pagina * 20 >= coincidencias.Count)" @onclick="() => pagina++">Siguiente</button></div>
+        }
     }
     @if (Pedido.TotalProductos > 0)
     {
-        <div class="ui-table-wrap mt-3"><table class="table table-sm align-middle draft-table"><thead><tr><th scope="col">Código / descripción</th><th scope="col">Cantidad</th><th scope="col">Comentario</th><th scope="col"><span class="visually-hidden">Acciones</span></th></tr></thead><tbody>
+        <h3 class="h6 mt-4">Anotaciones del equipo</h3>
+        <div class="ui-table-wrap"><table class="table table-sm align-middle draft-table"><thead><tr><th scope="col">Código / descripción</th><th scope="col">Cantidad</th><th scope="col">Comentario</th><th scope="col"><span class="visually-hidden">Acciones</span></th></tr></thead><tbody>
         @foreach (var item in Pedido.Items.OrderBy(i => i.CodigoProducto))
         {
-            <tr @key="item.CodigoProducto"><td class="ui-product"><strong>@item.CodigoProducto</strong><small>@item.DescripcionProducto</small></td>
-                <td><input class="form-control form-control-sm draft-quantity" aria-label="@($"Cantidad de {item.CodigoProducto}")" type="number" min="0.01" step="any" value="@item.CantidadSolicitada.ToString(System.Globalization.CultureInfo.InvariantCulture)" @onchange="e => Cantidad(item, e)" /></td>
+            <tr @key="item.CodigoProducto"><td class="ui-product"><strong>@item.CodigoProducto</strong><small>@item.DescripcionProducto</small>
+                <label class="draft-exception"><input type="checkbox" @bind="item.CompraExcepcional" @bind:after="Pedido.NotificarCambio" /> Pedido puntual</label></td>
+                <td><input @key="revisionCantidad" class="form-control form-control-sm draft-quantity" aria-label="@($"Cantidad de {item.CodigoProducto}")" type="number" min="0" step="any" value="@item.CantidadSolicitada.ToString(CultureInfo.InvariantCulture)" @onchange="e => Cantidad(item, e)" /></td>
                 <td><input class="form-control form-control-sm" placeholder="Comentario opcional" aria-label="@($"Comentario de {item.CodigoProducto}")" maxlength="300" @bind="item.Comentario" @bind:event="oninput" @bind:after="Pedido.NotificarCambio" /></td>
-                <td><button class="btn btn-link btn-sm" @onclick="() => Pedido.Quitar(item.CodigoProducto)">Quitar</button></td></tr>
+                <td><button type="button" class="btn btn-link btn-sm" @onclick="() => Pedido.Quitar(item.CodigoProducto)">Quitar</button></td></tr>
         }
         </tbody></table></div>
+        <p class="ui-help mt-2">«Pedido puntual» evita usar esa cantidad para recomendar compras habituales. No se asigna una bodega hasta revisar el Excel actualizado.</p>
     }
-    else { <p class="ui-empty mb-0">Todavía no has anotado productos. Busca un código para comenzar.</p> }
-    @if (error is not null) { <p class="text-danger small" role="alert">@error</p> }
+    else { <p class="ui-empty">Busca un producto o abre el catálogo y pulsa «Anotar». No necesitas otro Excel para empezar.</p> }
+    <div class="draft-footer">
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-primary btn-sm" disabled="@(ocupado || Pedido.TotalProductos == 0)" @onclick="Guardar">Guardar borrador</button>
+            <button type="button" class="btn btn-outline-primary btn-sm" disabled="@ocupado" @onclick="ActualizarStock">Actualizar stock y preparar envío</button>
+        </div>
+        <small>Cuando vayas a enviar el pedido, carga el Excel reciente. Tus anotaciones se mantendrán y aparecerán en amarillo para revisar origen y cantidad.</small>
+    </div>
+    @if (error is not null || Trabajo.ErrorGuardado is not null) { <p class="text-danger small mt-2 mb-0" role="alert">@(error ?? Trabajo.ErrorGuardado)</p> }
+    else if (Trabajo.Guardando) { <p class="small mt-2 mb-0" role="status">Guardando anotaciones…</p> }
+    else if (mensaje is not null) { <p class="text-success small mt-2 mb-0" role="status">@mensaje</p> }
 </section>
 @code {
     private string busqueda = "";
-    private string? error;
+    private string? error, mensaje;
+    private bool mostrarCatalogo, ocupado;
+    private int pagina = 1, revisionCantidad;
+    private readonly Dictionary<string, string> cantidades = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> comentarios = new(StringComparer.OrdinalIgnoreCase);
     private IEnumerable<ProductoInventario> Coincidencias => Inventario.Productos.Where(p =>
-        p.Codigo.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase) || p.Descripcion.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase)).Take(20);
-    private void Anotar(ProductoInventario producto) { Pedido.Anotar(producto, 1); busqueda = ""; }
+        p.Codigo.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase) || p.Descripcion.Contains(busqueda.Trim(), StringComparison.OrdinalIgnoreCase));
+    protected override void OnInitialized() => Trabajo.Cambiado += Cambio;
+    private void Cambio() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Trabajo.Cambiado -= Cambio;
+    private void Buscar(ChangeEventArgs e) { busqueda = e.Value?.ToString() ?? ""; pagina = 1; }
+    private void AlternarCatalogo() { mostrarCatalogo = !mostrarCatalogo; pagina = 1; }
+    private void Anotar(ProductoInventario producto)
+    {
+        error = mensaje = null;
+        if (!decimal.TryParse(cantidades.GetValueOrDefault(producto.Codigo, "1"), NumberStyles.Float, CultureInfo.InvariantCulture, out var cantidad) || cantidad <= 0)
+        { error = "Escribe una cantidad mayor que cero antes de anotar."; return; }
+        if (Pedido.Anotar(producto, cantidad, comentarios.GetValueOrDefault(producto.Codigo, ""), compraExcepcional: true))
+        { cantidades.Remove(producto.Codigo); comentarios.Remove(producto.Codigo); }
+    }
     private void Cantidad(ItemPedido item, ChangeEventArgs e)
     {
-        if (!decimal.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cantidad) || cantidad <= 0)
+        revisionCantidad++;
+        if (!decimal.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var cantidad) || cantidad <= 0)
         { error = "Escribe una cantidad mayor que cero."; return; }
-        item.CantidadSolicitada = cantidad; item.RequiereRevision = true; error = null; Pedido.NotificarCambio();
+        item.CantidadSolicitada = cantidad; item.RequiereRevision = true; error = mensaje = null; Pedido.NotificarCambio();
+    }
+    private async Task<bool> GuardarCambios()
+    {
+        ocupado = true; error = mensaje = null;
+        try
+        {
+            if (Trabajo.ErrorGuardado is not null) await Trabajo.Reintentar();
+            await Trabajo.EsperarGuardado();
+            mensaje = "Borrador guardado para tu equipo. Puedes continuar otro día.";
+            return true;
+        }
+        catch (Exception ex) { error = ex.Message; return false; }
+        finally { ocupado = false; }
+    }
+    private async Task Guardar() => await GuardarCambios();
+    private async Task ActualizarStock()
+    {
+        if (await GuardarCambios()) Navegacion.NavigateTo("importar");
     }
 }

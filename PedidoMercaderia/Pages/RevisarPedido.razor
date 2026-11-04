@@ -19,7 +19,9 @@
     <header class="pedido-header">
         <div>
             <h1>Preparar pedido</h1>
-            <p>Revisa lo que tienes y agrega lo que necesitas de los centros seleccionados.</p>
+            <p>@(Trabajo.Estado.Corte is not null && !Trabajo.Estado.PedidoAbierto
+                ? "Anota lo que necesitas durante la semana. Puedes empezar sin cargar otro Excel."
+                : "Revisa lo que tienes y agrega lo que necesitas de los centros seleccionados.")</p>
         </div>
         @if (Inventario.TieneInventario)
         {
@@ -39,13 +41,8 @@
     }
     else if (Trabajo.Estado.Corte is not null && !Trabajo.Estado.PedidoAbierto)
     {
-        <section class="border rounded p-3">
-            <h2 class="h5">@(Trabajo.Estado.Corte.Estado == "Cerrado" ? "Pedido guardado" : "Preparación anulada")</h2>
-            <p>Para preparar un nuevo pedido, carga un Excel actualizado.</p>
-            <a class="btn btn-primary btn-sm" href="importar">Cargar nuevo inventario</a>
-            <a class="btn btn-outline-primary btn-sm ms-2" href="resumen">Ver historial y descargar pedidos</a>
-        </section>
         <BorradorProximo />
+        <p class="small text-muted mt-3">Tu pedido anterior está en el <a href="resumen">historial de pedidos</a>. Estas anotaciones son para el próximo envío.</p>
     }
     else
     {

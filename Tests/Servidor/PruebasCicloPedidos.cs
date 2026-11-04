@@ -37,7 +37,7 @@ static class PruebasCicloPedidos
         await Rechaza(() => db.Realizar(e.Revision, "admin"), "Cerrar dos veces no duplica un pedido");
         await Rechaza(() => db.Generar(new(e.Revision, false), "admin"), "No se generan pedidos nuevos con un Excel cerrado");
         await Rechaza(() => db.Guardar(new(revisionAbierta, [new() { CodigoProducto = "CABLE", BodegaOrigen = "B1", CantidadSolicitada = 1 }], e.Corte!.Id, []), "admin"), "Otro compañero con la pantalla vieja no puede reabrir el pedido cerrado al guardar");
-        await db.Guardar(new(e.Revision, [new() { CodigoProducto = "CABLE", CantidadSolicitada = 9, ReservaCentro = 1, Comentario = "Solicitado el miércoles", RequiereRevision = true }], e.Corte!.Id), "admin");
+        await db.Guardar(new(e.Revision, [new() { CodigoProducto = "CABLE", CantidadSolicitada = 9, ReservaCentro = 1, Comentario = "Solicitado el miércoles", RequiereRevision = true, CompraExcepcional = true }], e.Corte!.Id), "admin");
         e = await otra.Estado();
         verificar(e.Borrador.Single().RequiereRevision && e.Borrador.Single().BodegaOrigen == "", "El borrador futuro persiste sin inventar una bodega ni limitarse al stock antiguo");
         byte[] codigoAntes;
@@ -45,6 +45,8 @@ static class PruebasCicloPedidos
         await db.Importar(new(e.Revision, new(2026, 10, 8), Excel(true)), "ana"); e = await db.Estado();
         verificar(e.PedidoAbierto && e.Borrador.Single().CantidadSolicitada == 9 && e.Borrador.Single().RequiereRevision,
             "El siguiente Excel conserva la cantidad anticipada y exige revisar la fila amarilla");
+        verificar(e.Borrador.Single().Comentario == "Solicitado el miércoles" && e.Borrador.Single().CompraExcepcional,
+            "Actualizar existencias conserva el motivo del cliente y la marca de pedido puntual del equipo");
         await using (var ef = banco.Fabrica.CreateDbContext())
             verificar(await ef.Productos.CountAsync() == 2 && (await ef.Productos.SingleAsync(p => p.PrimerCorteId == 1)).CodigoCifrado.SequenceEqual(codigoAntes),
                 "Importar inserta productos nuevos sin duplicar ni cambiar los identificadores de los existentes");

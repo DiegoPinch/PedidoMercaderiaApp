@@ -38,11 +38,12 @@ namespace PedidoMercaderia.Services
                 : null;
         }
 
-        public bool Anotar(ProductoInventario producto, decimal cantidad)
+        public bool Anotar(ProductoInventario producto, decimal cantidad, string comentario = "", bool compraExcepcional = false)
         {
             if (cantidad <= 0 || Contiene(producto.Codigo)) return false;
             _items.Add(producto.Codigo, new ItemPedido { CodigoProducto = producto.Codigo,
-                DescripcionProducto = producto.Descripcion, CantidadSolicitada = cantidad, RequiereRevision = true, ReservaCentro = 1 });
+                DescripcionProducto = producto.Descripcion, CantidadSolicitada = cantidad, RequiereRevision = true, ReservaCentro = 1,
+                Comentario = comentario.Length > 300 ? comentario[..300] : comentario, CompraExcepcional = compraExcepcional });
             NotificarCambio();
             return true;
         }

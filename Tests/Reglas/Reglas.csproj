@@ -21,6 +21,7 @@
     <RazorComponent Include="../../PedidoMercaderia/Pages/RevisarPedido.razor" Link="Components/RevisarPedido.razor" />
     <Compile Include="../../PedidoMercaderia/Service/TrabajoService.cs" Link="TrabajoService.cs" />
     <RazorComponent Include="../../PedidoMercaderia/Pages/Importar.razor" Link="Components/Importar.razor" />
+    <RazorComponent Include="../../PedidoMercaderia/Pages/Resumen.razor" Link="Components/Resumen.razor" />
     <RazorComponent Include="../../PedidoMercaderia/Components/AjustesBodegas.razor" Link="Components/AjustesBodegas.razor" />
     <RazorComponent Include="../../PedidoMercaderia/Components/AjustesReposicion.razor" Link="Components/AjustesReposicion.razor" />
     <RazorComponent Include="../../PedidoMercaderia/Components/BorradorProximo.razor" Link="Components/BorradorProximo.razor" />

@@ -129,6 +129,9 @@ public static class VistaPrevia
         contenido = await Renderizar();
         if (!contenido.Contains("Borrador para el próximo pedido") || contenido.Contains("pedido-tabla-wrap") || !contenido.Contains("historial"))
             throw new Exception("Un Excel cerrado debe mostrar las anotaciones futuras y el historial, sin la lista para volver a pedir.");
+        if (!contenido.Contains("Guardar borrador") || !contenido.Contains("Ver cat") || !contenido.Contains("Actualizar stock y preparar env")
+            || contenido.Contains("Para preparar un nuevo pedido, carga un Excel"))
+            throw new Exception("El borrador debe permitir anotar y guardar antes de actualizar el stock, sin mostrar el Excel como requisito para empezar.");
         Console.WriteLine("OK: borrador futuro, filas amarillas y estado cerrado sin revisión del inventario anterior.");
         string bootstrap = await File.ReadAllTextAsync(Path.Combine(raiz, "PedidoMercaderia/wwwroot/lib/bootstrap/dist/css/bootstrap.min.css"));
         string estilos = await File.ReadAllTextAsync(Path.Combine(raiz, "PedidoMercaderia/Pages/RevisarPedido.razor.css"));

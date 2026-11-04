@@ -91,6 +91,8 @@ PruebasExportacion.Ejecutar(Verificar);
 PruebasFiltrosColumnas.Ejecutar(Verificar);
 PruebasFiltrosColumnas.VerificarTablaInventario(Verificar);
 await PruebasTrabajo.Ejecutar(Verificar);
+PruebasTrabajo.VerificarBorradorSemanal(Verificar);
+await PruebasHistorial.Ejecutar(Verificar);
 Console.WriteLine($"{comprobaciones} comprobaciones correctas.");
 
 if (args.Length == 2 && args[0] == "--vista")

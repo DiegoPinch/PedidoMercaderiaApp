@@ -75,6 +75,17 @@ body { background: var(--ui-canvas); color: var(--ui-ink); }
 .draft-table .draft-quantity { width: 90px; text-align: right; }
 .draft-table td:first-child { width: 45%; }
 .draft-table td:last-child { width: 70px; }
+.draft-search { display: flex; align-items: end; gap: 12px; }
+.draft-search > div { flex: 1; min-width: 0; }
+.draft-search > button { flex-shrink: 0; min-height: 36px; }
+.draft-catalog { min-width: 600px; }
+.draft-catalog th:first-child { width: 42%; }
+.draft-catalog th:nth-child(2) { width: 85px; }
+.draft-catalog th:last-child { width: 85px; }
+.draft-catalog .draft-quantity { width: 70px; }
+.draft-footer { border-top: 1px solid var(--ui-line); padding-top: 16px; margin-top: 20px; }
+.draft-footer > small { display: block; margin-top: 10px; color: var(--ui-muted); }
+.draft-exception { display: flex; gap: 6px; align-items: center; margin-top: 5px; font-size: 11px; color: var(--ui-muted); }
 .ui-loading { padding: 24px; border: 1px solid var(--ui-line); border-radius: 10px; background: #fff; color: var(--ui-muted); text-align: center; }
 .inventory-open { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .inventory-open .btn { flex-shrink: 0; }
@@ -141,6 +152,7 @@ body { background: var(--ui-canvas); color: var(--ui-ink); }
 .app-main .filtros-columnas-resumen { padding: 4px 0 10px; gap: 6px; font-size: 11px; }
 .app-main .filtro-etiqueta { background: #e5effc; border-color: #c9dbef; color: #265b92; font-size: 11px; padding: 3px 8px; }
 .selector-field { display: grid; gap: 6px; min-width: 0; }
+.historial-vistas { display: flex; gap: 6px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--ui-line); }
 .resumen-filtros > .selector-field { flex: 1 1 130px; }
 .selector-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; min-height: 38px; padding: 8px 11px; border: 1px solid var(--ui-line); border-radius: 7px; background: #fff; color: var(--ui-ink); text-align: left; font: inherit; font-size: 13px; line-height: 1.4; cursor: pointer; }
 .selector-control > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

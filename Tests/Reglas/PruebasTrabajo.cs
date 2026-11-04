@@ -39,6 +39,40 @@ static class PruebasTrabajo
             "El Excel histórico se descarga directamente por su pedido");
     }
 
+    public static void VerificarBorradorSemanal(Action<bool, string> verificar)
+    {
+        var pedido = new PedidoService();
+        var tipo = typeof(PruebasTrabajo).Assembly.GetTypes().Single(t => t.Name == "BorradorProximo");
+        var pantalla = Activator.CreateInstance(tipo)!;
+        const System.Reflection.BindingFlags acceso = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+        tipo.GetProperty("Pedido", acceso)!.SetValue(pantalla, pedido);
+        T Campo<T>(string nombre) => (T)tipo.GetField(nombre, acceso)!.GetValue(pantalla)!;
+        void Invocar(string nombre, params object[] args) => tipo.GetMethod(nombre, acceso)!.Invoke(pantalla, args);
+        var producto = new ProductoInventario { Codigo = "CAMARA-PUNTUAL", Descripcion = "Cámara para cliente", Existencias = new() { ["B1"] = 0, ["B4"] = 0 } };
+        Campo<Dictionary<string, string>>("cantidades")[producto.Codigo] = "25";
+        Campo<Dictionary<string, string>>("comentarios")[producto.Codigo] = "Cotización del miércoles";
+        string? comentarioAlGuardar = null;
+        pedido.Cambiado += () => comentarioAlGuardar = pedido.Obtener(producto.Codigo)?.Comentario;
+        Invocar("Anotar", producto);
+        var item = pedido.Obtener(producto.Codigo)!;
+        verificar(item.CantidadSolicitada == 25 && item.BodegaOrigen == "" && item.RequiereRevision,
+            "El borrador semanal anota la cantidad solicitada aunque no haya stock, sin asignar un origen antiguo");
+        verificar(item.CompraExcepcional && comentarioAlGuardar == "Cotización del miércoles",
+            "La primera notificación de guardado ya incluye la nota del cliente y la marca de pedido puntual");
+        Invocar("Anotar", producto);
+        verificar(pedido.TotalProductos == 1 && item.CantidadSolicitada == 25 && item.Comentario == "Cotización del miércoles",
+            "Anotar de nuevo no duplica ni reemplaza una solicitud ya preparada");
+        Invocar("Cantidad", item, new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "-1" });
+        verificar(item.CantidadSolicitada == 25, "Una cantidad inválida no borra la anotación de la semana");
+        Invocar("Cantidad", item, new Microsoft.AspNetCore.Components.ChangeEventArgs { Value = "0.5" });
+        verificar(item.CantidadSolicitada == .5m && item.RequiereRevision && item.Comentario == "Cotización del miércoles",
+            "Editar admite cantidades fraccionarias y conserva el comentario y la revisión pendiente");
+        var otro = new ProductoInventario { Codigo = "OTRO" };
+        Campo<Dictionary<string, string>>("cantidades")[otro.Codigo] = "0";
+        Invocar("Anotar", otro);
+        verificar(!pedido.Contiene(otro.Codigo), "No se anotan productos con cantidad cero");
+    }
+
     private sealed class ServidorFalso : HttpMessageHandler
     {
         public List<string> Rutas { get; } = [];

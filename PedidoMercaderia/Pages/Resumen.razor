@@ -18,6 +18,39 @@
         </div>
     </header>
     @if (mensaje is not null) { <div class="alert alert-info" role="status">@mensaje</div> }
+    <nav class="historial-vistas" aria-label="Consultar historial">
+        <button type="button" class="btn @(porProducto ? "btn-light" : "btn-primary")" aria-pressed="@(!porProducto)" disabled="@ocupado" @onclick="() => porProducto = false">Pedidos</button>
+        <button type="button" class="btn @(porProducto ? "btn-primary" : "btn-light")" aria-pressed="@porProducto" disabled="@ocupado" @onclick="() => porProducto = true">Por producto</button>
+    </nav>
+    @if (porProducto)
+    {
+        var productos = ProductosVisibles.ToList();
+        <section class="ui-card mb-3">
+            <label class="form-label" for="buscarHistorialProducto">Buscar producto</label>
+            <input id="buscarHistorialProducto" type="search" class="form-control" placeholder="Código o descripción"
+                   @bind="buscarProducto" @bind:event="oninput" @bind:after="() => paginaProductos = 1" />
+            <p class="ui-help mt-2 mb-0">Productos pedidos en los últimos @Trabajo.Estado.DiasHistorial días, sin anulaciones. «Ver pedidos» consulta todas las fechas de ese código.</p>
+        </section>
+        <div class="resumen-tabla"><table class="table table-sm align-middle">
+            <thead><tr><th scope="col">Código / descripción</th><th scope="col">Pedidos</th><th scope="col">Cantidad pedida</th><th scope="col">Último pedido</th><th scope="col"><span class="visually-hidden">Consultar</span></th></tr></thead>
+            <tbody>
+                @foreach (var producto in productos.Skip((paginaProductos - 1) * 25).Take(25))
+                {
+                    <tr @key="producto.Codigo"><td><strong>@producto.Codigo</strong><small>@producto.Descripcion</small></td>
+                        <td>@producto.Pedidos</td><td>@Numero(producto.Cantidad)</td><td>@producto.UltimoPedido.AddHours(-5).ToString("dd/MM/yyyy HH:mm")</td>
+                        <td><button type="button" class="btn btn-outline-primary btn-sm" @onclick="() => VerHistorialProducto(producto.Codigo)">Ver pedidos</button></td></tr>
+                }
+                @if (productos.Count == 0) { <tr><td colspan="5" class="py-4 text-muted">No hay productos con estos criterios en el período reciente. Para consultar uno más antiguo, busca su código en «Pedidos».</td></tr> }
+            </tbody>
+        </table></div>
+        <div class="d-flex align-items-center gap-3 my-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(paginaProductos <= 1)" @onclick="() => paginaProductos--">Anterior</button>
+            <small>@productos.Count productos · Página @paginaProductos de @Math.Max(1, (productos.Count + 24) / 25)</small>
+            <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(paginaProductos * 25 >= productos.Count)" @onclick="() => paginaProductos++">Siguiente</button>
+        </div>
+    }
+    else
+    {
     <form class="resumen-filtros ui-card mb-3" @onsubmit="() => CargarHistorial(1)" @onsubmit:preventDefault>
         <label>Código exacto<input class="form-control form-control-sm" @bind="codigoHistorial" @bind:event="oninput" placeholder="Todos los productos" /></label>
         <div class="selector-field"><label for="estadoHistorial">Estado</label><SelectorBuscable Id="estadoHistorial" Etiqueta="Estado" @bind-Valor="estadoHistorial" Opciones="@(new OpcionSelector[] { new("", "Todos"), new("Guardado", "Guardado"), new("Cancelado", "Anulado") })" /></div>
@@ -52,9 +85,16 @@
             }</div><small class="mt-2">La anulación queda en el historial. Si corresponde al último Excel, reabre su preparación y recupera sus artículos.</small>
         </section>
     }
+    }
 </div>
 @code {
     private bool ocupado, cargandoHistorial;
+    private bool porProducto;
+    private string buscarProducto = "";
+    private int paginaProductos = 1;
+    private IEnumerable<ProductoFrecuente> ProductosVisibles => Trabajo.Estado.MasPedidos.Where(p =>
+        string.IsNullOrWhiteSpace(buscarProducto) || p.Codigo.Contains(buscarProducto.Trim(), StringComparison.OrdinalIgnoreCase)
+        || p.Descripcion.Contains(buscarProducto.Trim(), StringComparison.OrdinalIgnoreCase));
     private string codigoHistorial = "", estadoHistorial = "";
     private DateOnly? desde, hasta;
     private string? mensaje;
@@ -72,6 +112,14 @@
         finally { cargandoHistorial = false; }
     });
     private Task LimpiarHistorial() { codigoHistorial = estadoHistorial = ""; desde = hasta = null; return CargarHistorial(1); }
+    private Task VerHistorialProducto(string codigo)
+    {
+        porProducto = false;
+        codigoHistorial = codigo;
+        estadoHistorial = "";
+        desde = hasta = null;
+        return CargarHistorial(1);
+    }
     private Task VerPedido(long id) => Ejecutar(async () => { detalle = await Trabajo.Detalle(id); });
     private Task AnularPedido() => Ejecutar(async () => { await Trabajo.CambiarEstado(detalle!.Resumen.Id, "Cancelado"); Navegacion.NavigateTo("pedido?lista=mi-pedido"); });
     private Task ExportarHistorial() => DescargarPedido(detalle!.Resumen.Id);
