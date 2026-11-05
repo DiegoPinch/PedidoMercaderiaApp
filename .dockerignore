@@ -1,0 +1,15 @@
+
+.git
+.github
+.vs
+**/bin
+**/obj
+artifacts
+dist
+Servidor/Datos
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/*.local.json
+**/.env
+**/.env.*
+Tests

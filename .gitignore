@@ -11,3 +11,10 @@ Servidor/Datos/
 artifacts/
 dist/
 **/*.csproj.user
+
+# Credenciales y datos privados
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/.env
+**/.env.*
+**/Datos/
